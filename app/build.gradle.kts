@@ -1,14 +1,17 @@
+// Migration notice: switched from KAPT to KSP for annotation processing.
+// Reason: KSP avoids compatibility problems with AGP's built-in Kotlin
+// support and is the recommended modern replacement for KAPT. Room's compiler is now invoked via KSP.
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    // KSP plugin for annotation processing. Version should match Kotlin compatibility matrix.
+    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.example.progmob_progetto_melluso"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version = release(37)
     }
 
     defaultConfig {
@@ -53,4 +56,22 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    // KSP
+    ksp("androidx.room:room-compiler:2.5.1")
+
+    // DataStore
+    implementation(libs.androidx.datastore.preferences)
+
+    // Location
+    implementation(libs.google.play.services.location)
+
+    // Firebase Auth
+    implementation(libs.com.google.firebase.auth.ktx)
+
+    // ViewModel KTX
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
 }
