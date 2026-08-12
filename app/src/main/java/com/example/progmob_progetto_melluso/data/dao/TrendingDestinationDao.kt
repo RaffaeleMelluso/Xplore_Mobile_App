@@ -1,0 +1,40 @@
+package com.example.progmob_progetto_melluso.data.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationEntity
+import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationTimeSpanEntity
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface TrendingDestinationDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTimeSpan(timeSpan: TrendingDestinationTimeSpanEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDestinations(destinations: List<TrendingDestinationEntity>)
+
+    @Query("SELECT * FROM trending_destination_time_spans ORDER BY generatedAtUtcMillis DESC")
+    fun allTimeSpans(): Flow<List<TrendingDestinationTimeSpanEntity>>
+
+    @Query(
+        """
+        SELECT * FROM trending_destination_time_spans
+        WHERE periodType = :periodType
+        ORDER BY generatedAtUtcMillis DESC
+        LIMIT 1
+        """
+    )
+    fun latestTimeSpan(periodType: String): Flow<TrendingDestinationTimeSpanEntity?>
+
+    @Query(
+        """
+        SELECT * FROM trending_destinations
+        WHERE timeSpanId = :timeSpanId
+        ORDER BY rankPosition ASC
+        """
+    )
+    fun destinationsForTimeSpan(timeSpanId: Long): Flow<List<TrendingDestinationEntity>>
+}

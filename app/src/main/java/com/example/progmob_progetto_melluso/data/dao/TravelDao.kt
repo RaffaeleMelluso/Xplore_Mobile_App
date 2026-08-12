@@ -11,6 +11,9 @@ interface TravelDao {
     @Insert
     suspend fun insert(travel: TravelEntity): Long
 
-    @Query("SELECT * FROM travels ORDER BY startTimestamp DESC")
+    @Query("SELECT * FROM travels ORDER BY startUtcMillis DESC")
     fun allTravels(): Flow<List<TravelEntity>>
+
+    @Query("SELECT * FROM travels WHERE id = :travelId LIMIT 1")
+    fun travelById(travelId: Long): Flow<TravelEntity?>
 }
