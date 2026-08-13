@@ -15,6 +15,9 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profiles WHERE firebaseUserId = :firebaseUserId LIMIT 1")
     fun profileByFirebaseUserId(firebaseUserId: String): Flow<UserProfileEntity?>
 
+    @Query("SELECT * FROM user_profiles WHERE firebaseUserId = :firebaseUserId LIMIT 1")
+    suspend fun profileByFirebaseUserIdOnce(firebaseUserId: String): UserProfileEntity?
+
     @Query("SELECT * FROM user_profiles ORDER BY createdAtUtcMillis DESC")
     fun allProfiles(): Flow<List<UserProfileEntity>>
 }

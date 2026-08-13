@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">ProgMob_Progetto_Melluso</string>
+    <!--
+    <string name="google_web_client_id">REPLACE_WITH_FIREBASE_WEB_CLIENT_ID</string>
+    -->
+    <string name="login_title">Welcome to Xplore</string>
+    <string name="login_subtitle">Sign in securely with Google to start your travel diary.</string>
+    <string name="login_with_google">Continue with Google</string>
+    <string name="logout">Logout</string>
+    <string name="login_signed_in_as">Signed in as %1$s</string>
+    <string name="login_signed_in">Signed in</string>
 </resources>
