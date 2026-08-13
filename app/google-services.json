@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "410201611104",
+    "project_id": "xplore-app-project",
+    "storage_bucket": "xplore-app-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:410201611104:android:1ebd79ed044157529f1c05",
+        "android_client_info": {
+          "package_name": "com.example.progmob_progetto_melluso"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "410201611104-uesubu3rff3upft4chs02sa9aceeg5jc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.progmob_progetto_melluso",
+            "certificate_hash": "c3ab4e513493a2c7032181cc0ae370960a317701"
+          }
+        },
+        {
+          "client_id": "410201611104-7bmsn55agceqdhhsv8ocu8srd41so4go.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANUQZ6lHVqAE1Ap2V9Y3dyFLHeiAtdB78"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "410201611104-7bmsn55agceqdhhsv8ocu8srd41so4go.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

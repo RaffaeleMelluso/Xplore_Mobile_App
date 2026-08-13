@@ -1,0 +1,3 @@
+- [x] Update Room version in `libs.versions.toml`
+- [x] Update `app/build.gradle.kts` to use `libs.androidx.room.compiler`
+- [x] Verify fix by running `:app:kspDebugKotlin`
