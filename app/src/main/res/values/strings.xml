@@ -1,3 +1,31 @@
 <resources>
     <string name="app_name">ProgMob_Progetto_Melluso</string>
+    <!--
+    <string name="google_web_client_id">REPLACE_WITH_FIREBASE_WEB_CLIENT_ID</string>
+    -->
+    <string name="login_title">Welcome to Xplore</string>
+    <string name="login_subtitle">Sign in with Google or email to start your travel diary.</string>
+    <string name="login_with_google">Continue with Google</string>
+    <string name="logout">Logout</string>
+    <string name="login_signed_in_as">Signed in as %1$s</string>
+    <string name="login_signed_in">Signed in</string>
+    <string name="login_email_label">Email</string>
+    <string name="login_password_label">Password</string>
+    <string name="login_show_password">Show</string>
+    <string name="login_hide_password">Hide</string>
+    <string name="login_submit_sign_in">Sign in</string>
+    <string name="login_submit_sign_up">Create account</string>
+    <string name="login_switch_to_sign_in">Already have an account? Sign in</string>
+    <string name="login_switch_to_sign_up">New to Xplore? Create an account</string>
+    <string name="login_forgot_password">Forgot password?</string>
+    <string name="login_password_reset_sent">Password reset email sent to %1$s.</string>
+    <string name="login_error_invalid_email">Enter a valid email address.</string>
+    <string name="login_error_invalid_credentials">Invalid email or password.</string>
+    <string name="login_error_password_required">Enter your password.</string>
+    <string name="login_error_weak_password">Password must be at least 6 characters.</string>
+    <string name="login_error_email_in_use">An account already exists with this email.</string>
+    <string name="login_error_user_disabled">This account has been disabled.</string>
+    <string name="login_error_too_many_requests">Too many attempts, please try again later.</string>
+    <string name="login_error_network">Network error, please try again.</string>
+    <string name="login_error_unknown">Authentication failed.</string>
 </resources>

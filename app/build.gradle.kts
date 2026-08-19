@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     // KSP plugin for annotation processing. Version should match Kotlin compatibility matrix.
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -61,7 +62,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     // KSP
-    ksp("androidx.room:room-compiler:2.5.1")
+    ksp(libs.androidx.room.compiler)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
@@ -71,6 +72,7 @@ dependencies {
 
     // Firebase Auth
     implementation(libs.com.google.firebase.auth.ktx)
+    implementation(libs.google.play.services.auth)
 
     // ViewModel KTX
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
