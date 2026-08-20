@@ -14,4 +14,8 @@ interface TravelPathPointDao {
 
     @Query("SELECT * FROM travel_path_points WHERE travelId = :travelId ORDER BY recordedAtUtcMillis ASC")
     fun pointsForTravel(travelId: Long): Flow<List<TravelPathPointEntity>>
+
+    /** One-shot variant used by the repository to rebuild its segmenter state. produces no flow */
+    @Query("SELECT * FROM travel_path_points WHERE travelId = :travelId ORDER BY recordedAtUtcMillis ASC")
+    suspend fun pointsForTravelOnce(travelId: Long): List<TravelPathPointEntity>
 }
