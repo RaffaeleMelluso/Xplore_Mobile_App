@@ -5,6 +5,11 @@ import androidx.room.Room
 import com.example.progmob_progetto_melluso.auth.AuthRepository
 import com.example.progmob_progetto_melluso.auth.FirebaseAuthRepository
 import com.example.progmob_progetto_melluso.data.database.AppDatabase
+import com.example.progmob_progetto_melluso.map.DemoPoiSeed
+import com.example.progmob_progetto_melluso.map.GhostSimulator
+import com.example.progmob_progetto_melluso.map.MapRepository
+import com.example.progmob_progetto_melluso.map.MapRepositoryImpl
+import com.example.progmob_progetto_melluso.service.LocationUpdates
 import com.example.progmob_progetto_melluso.travel.TravelRepository
 import com.example.progmob_progetto_melluso.travel.TravelRepositoryImpl
 import java.util.TimeZone
@@ -35,6 +40,20 @@ object AppContainer {
             travelDao = database(context).travelDao(),
             pathPointDao = database(context).travelPathPointDao(),
             timeZoneIdProvider = { TimeZone.getDefault().id }
+        )
+    }
+
+    /**
+     * Map repository wired to the sensor stream, the travel repository and the
+     * demo POI seed. Ghosts are simulated locally until a real backend exists.
+     */
+    fun mapRepository(context: Context): MapRepository {
+        return MapRepositoryImpl(
+            locationFlow = LocationUpdates.samples,
+            poiDao = database(context).poiDao(),
+            travelRepository = travelRepository(context),
+            ghostSimulator = GhostSimulator(),
+            poiSeed = DemoPoiSeed.turin + DemoPoiSeed.cerignola
         )
     }
 }
