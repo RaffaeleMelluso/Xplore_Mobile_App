@@ -16,4 +16,7 @@ interface PoiDao {
 
     @Query("SELECT COUNT(*) FROM pois")
     suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM pois WHERE title = :title")
+    suspend fun countByTitle(title: String): Int
 }

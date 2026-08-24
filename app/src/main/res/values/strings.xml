@@ -33,6 +33,7 @@
     <string name="tab_travel">Journal</string>
     <string name="tab_trends">Trends</string>
     <string name="tab_profile">Profile</string>
+    <string name="app_version_label">Version %1$s</string>
     <string name="placeholder_coming_soon">Coming soon</string>
     <string name="placeholder_travel">Your travel journal with routes, photos and visited places will live here.</string>
     <string name="placeholder_trends">Trends and recommendations from other travelers will live here.</string>

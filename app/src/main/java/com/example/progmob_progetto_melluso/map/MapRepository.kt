@@ -18,8 +18,13 @@ import kotlinx.coroutines.flow.Flow
  */
 interface MapRepository {
 
-    /** Emits the continuous stream of location fixes, starting with the latest one. */
-    fun observeCurrentLocation(): Flow<LocationSample>
+    /**
+     * Emits the continuous stream of location fixes, starting with the latest
+     * one. Emits `null` immediately if no fix has ever been received (for
+     * example when the app started with location services off), so the map
+     * state does not stay stuck in "loading" waiting for the first fix.
+     */
+    fun observeCurrentLocation(): Flow<LocationSample?>
 
     /** Emits all points of interest, newest first. */
     fun observePois(): Flow<List<PoiEntity>>

@@ -53,7 +53,7 @@ object AppContainer {
             poiDao = database(context).poiDao(),
             travelRepository = travelRepository(context),
             ghostSimulator = GhostSimulator(),
-            poiSeed = DemoPoiSeed.turin
+            poiSeed = DemoPoiSeed.turin + DemoPoiSeed.cerignola
         )
     }
 }

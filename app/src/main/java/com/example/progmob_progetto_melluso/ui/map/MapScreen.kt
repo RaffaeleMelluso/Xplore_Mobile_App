@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.progmob_progetto_melluso.R
+import kotlinx.coroutines.delay
 import com.google.gson.JsonObject
 import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.core.GeoUtils
@@ -107,64 +108,87 @@ fun MapScreen(modifier: Modifier = Modifier) {
     var selectedPoi by remember { mutableStateOf<PoiEntity?>(null) }
     var selectedGhost by remember { mutableStateOf<GhostEntity?>(null) }
 
-    // Refresh the location warning state every time the screen resumes
-    // (e.g. after granting the permission or leaving the system settings).
+    // Location state is re-checked on every ON_RESUME (returning from the
+    // system settings) AND polled while the screen is composed: enabling GPS
+    // from the quick settings toggle does NOT pause the activity, so no
+    // lifecycle event fires and ON_RESUME alone would leave the block screen
+    // stuck until the app is restarted. The poll is cheap (two system calls
+    // every couple of seconds) and makes the map appear right after the user
+    // turns location on, without restarting anything.
     var locationRefreshTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(LOCATION_POLL_MILLIS)
+            locationRefreshTick++
+        }
+    }
     val locationPermissionGranted = remember(locationRefreshTick) { hasLocationPermission(context) }
     val gpsEnabled = remember(locationRefreshTick) { isGpsEnabled(context) }
     val mapReady = locationPermissionGranted && gpsEnabled
 
-    Box(modifier = modifier.fillMaxSize()) {
-        if (mapReady) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    // One-time MapLibre initialization for this process.
-                    MapLibre.getInstance(ctx)
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-                    MapView(ctx).apply {
-                        getMapAsync { map ->
-                            map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
-                                val overlays = MapOverlays(ctx, map, style)
-                                overlaysRef.value = overlays
-                                overlays.update(uiState)
-                                mapViewRef.value = this
-                            }
-                            // Tap on empty map closes the info card; the card is
-                            // only shown when a POI/ghost is actually hit.
-                            map.addOnMapClickListener { latLng ->
-                                val poi = overlaysRef.value?.poiAt(latLng)
-                                val ghost = overlaysRef.value?.ghostAt(latLng)
-                                if (poi != null) {
-                                    selectedPoi = poi
-                                    selectedGhost = null
-                                } else if (ghost != null) {
-                                    selectedGhost = ghost
-                                    selectedPoi = null
-                                } else {
-                                    selectedPoi = null
-                                    selectedGhost = null
-                                }
-                                false
+    Box(modifier = modifier.fillMaxSize()) {
+        // The map is ALWAYS created here, even before location is usable: the
+        // block screen below is just an opaque overlay on top. Creating the
+        // MapView on demand (block -> GPS enabled) produced a view that missed
+        // onStart/onResume and stayed blank until the app was restarted.
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                // One-time MapLibre initialization for this process.
+                MapLibre.getInstance(ctx)
+
+                MapView(ctx).apply {
+                    mapViewRef.value = this
+                    getMapAsync { map ->
+                        map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
+                            val overlays = MapOverlays(ctx, map, style)
+                            overlaysRef.value = overlays
+                            overlays.update(uiState)
+                            // Before the first fix, show a sensible city view
+                            // instead of the whole-world default camera; the
+                            // camera then jumps to the user when the fix lands.
+                            if (uiState.userLocation == null) {
+                                map.cameraPosition = CameraPosition.Builder()
+                                    .target(DEFAULT_PRE_FIX_CAMERA)
+                                    .zoom(INITIAL_ZOOM)
+                                    .build()
                             }
                         }
+                        // Tap on empty map closes the info card; the card is
+                        // only shown when a POI/ghost is actually hit.
+                        map.addOnMapClickListener { latLng ->
+                            val poi = overlaysRef.value?.poiAt(latLng)
+                            val ghost = overlaysRef.value?.ghostAt(latLng)
+                            if (poi != null) {
+                                selectedPoi = poi
+                                selectedGhost = null
+                            } else if (ghost != null) {
+                                selectedGhost = ghost
+                                selectedPoi = null
+                            } else {
+                                selectedPoi = null
+                                selectedGhost = null
+                            }
+                            false
+                        }
                     }
-                },
-                update = { mapView ->
-                    mapViewRef.value = mapView
-                    overlaysRef.value?.update(uiState)
-                },
-                // MapLibre must be destroyed to release GL resources and avoid leaks.
-                onRelease = { mapView ->
-                    mapView.onDestroy()
-                    mapViewRef.value = null
-                    overlaysRef.value = null
                 }
-            )
-        }
+            },
+            update = { mapView ->
+                mapViewRef.value = mapView
+                overlaysRef.value?.update(uiState)
+            },
+            // MapLibre must be destroyed to release GL resources and avoid leaks.
+            onRelease = { mapView ->
+                mapView.onDestroy()
+                mapViewRef.value = null
+                overlaysRef.value = null
+            }
+        )
 
         // Forward the Activity lifecycle so the map can pause/resume GL rendering.
-        val lifecycleOwner = LocalLifecycleOwner.current
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
                 when (event) {
@@ -179,6 +203,17 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
+            // LifecycleEventObserver only receives FUTURE events: forward the
+            // CURRENT state right away, otherwise a map composed while the
+            // activity is already RESUMED (login -> home, or block -> GPS on)
+            // would never receive onStart/onResume and stay blank.
+            val currentState = lifecycleOwner.lifecycle.currentState
+            if (currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                mapViewRef.value?.onStart()
+                mapViewRef.value?.onResume()
+            } else if (currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                mapViewRef.value?.onStart()
+            }
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
 
@@ -265,16 +300,19 @@ fun MapScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        FloatingActionButton(
-            onClick = { recenterTick++ },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.LocationOn,
-                contentDescription = stringResource(R.string.map_recenter)
-            )
+        // Recenter button: only useful once the map is actually usable.
+        if (mapReady) {
+            FloatingActionButton(
+                onClick = { recenterTick++ },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.LocationOn,
+                    contentDescription = stringResource(R.string.map_recenter)
+                )
+            }
         }
     }
 }
@@ -361,7 +399,16 @@ private class MapOverlays(
     }
 
     private fun updateUser(location: LocationSample?) {
-        if (location == null) return
+        if (location == null) {
+            // No fix yet (or fix lost): drop any stale marker instead of
+            // leaving a ghost dot on the map.
+            if (!lastUserLat.isNaN()) {
+                lastUserLat = Double.NaN
+                lastUserLon = Double.NaN
+                userSource.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+            }
+            return
+        }
         if (location.latitude == lastUserLat && location.longitude == lastUserLon) return
         lastUserLat = location.latitude
         lastUserLon = location.longitude
@@ -462,6 +509,12 @@ private const val MAX_ZOOM = 19.0
 private const val INITIAL_ZOOM = 15.0
 private const val FOLLOW_ZOOM = 16.0
 private const val CAMERA_MOVE_THRESHOLD_METERS = 25.0
+
+/** City-view camera used until the first location fix arrives. */
+private val DEFAULT_PRE_FIX_CAMERA = LatLng(45.0703, 7.6869)
+
+/** How often the location permission/GPS state is re-checked while visible. */
+private const val LOCATION_POLL_MILLIS = 2_000L
 
 /**
  * Full-screen block shown when the map cannot use location.

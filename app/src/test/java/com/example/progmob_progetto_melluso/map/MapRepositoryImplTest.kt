@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
@@ -33,13 +34,13 @@ class MapRepositoryImplTest {
     )
 
     /**
-     * Verifica che il seed dei POI venga inserito solo quando la tabella è vuota.
+     * Verifica che il seed inserisca i POI quando la tabella è vuota (nessun titolo presente).
      */
     @Test
     fun ensurePoiSeed_insertsWhenEmpty() = runTest {
         val poiDao = mock<PoiDao>()
-        whenever(poiDao.count()).thenReturn(0)
-        val seed = listOf(poi(0L), poi(0L))
+        whenever(poiDao.countByTitle(any())).thenReturn(0)
+        val seed = listOf(poi(1L), poi(2L))
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = poiDao,
@@ -54,23 +55,48 @@ class MapRepositoryImplTest {
     }
 
     /**
-     * Verifica che il seed sia idempotente: se i POI ci sono già, non inserisce nulla.
+     * Verifica che il seed sia idempotente: se i titoli sono già presenti, non inserisce nulla.
      */
     @Test
-    fun ensurePoiSeed_skipsWhenNotEmpty() = runTest {
+    fun ensurePoiSeed_skipsWhenAllTitlesPresent() = runTest {
         val poiDao = mock<PoiDao>()
-        whenever(poiDao.count()).thenReturn(11)
+        whenever(poiDao.countByTitle(any())).thenReturn(1)
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = poiDao,
             travelRepository = mock(),
             ghostSimulator = GhostSimulator(ghostCount = 2),
-            poiSeed = listOf(poi(0L))
+            poiSeed = listOf(poi(1L))
         )
 
         repository.ensurePoiSeed()
 
         verify(poiDao, never()).insert(any())
+    }
+
+    /**
+     * Verifica che un seed misto (es. nuovo set di una nuova città) inserisca
+     * solo i POI mancanti, senza duplicare quelli già presenti.
+     */
+    @Test
+    fun ensurePoiSeed_insertsOnlyMissingTitles() = runTest {
+        val poiDao = mock<PoiDao>()
+        // "POI 1" esiste già, "POI 2" manca: viene inserito solo quest'ultimo.
+        whenever(poiDao.countByTitle(any())).thenReturn(1)
+        whenever(poiDao.countByTitle("POI 2")).thenReturn(0)
+        val repository = MapRepositoryImpl(
+            locationFlow = emptyFlow(),
+            poiDao = poiDao,
+            travelRepository = mock(),
+            ghostSimulator = GhostSimulator(ghostCount = 2),
+            poiSeed = listOf(poi(1L), poi(2L))
+        )
+
+        repository.ensurePoiSeed()
+
+        val captor = argumentCaptor<PoiEntity>()
+        verify(poiDao, times(1)).insert(captor.capture())
+        assertEquals("POI 2", captor.allValues.single().title)
     }
 
     /**

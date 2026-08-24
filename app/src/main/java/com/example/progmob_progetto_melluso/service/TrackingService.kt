@@ -5,15 +5,20 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.travel.LocationSample
@@ -52,20 +57,48 @@ class TrackingService : Service() {
     // notification: the service refuses to start again.
     private val prefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
 
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            val sample = LocationSample(
-                latitude = location.latitude,
-                longitude = location.longitude,
-                recordedAtUtcMillis = location.time,
-                accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
-            )
-            // Let the map layer render the new position immediately.
-            LocationUpdates.publish(sample)
-            // Persist it into the active travel path (filters live in the repository).
-            serviceScope.launch {
-                AppContainer.travelRepository(applicationContext).recordLocation(sample)
+    /**
+     * Reacts to the user enabling location while the service is already
+     * running (quick settings or system settings, no app restart).
+     *
+     * How it works: the fused provider usually resumes by itself, but asking
+     * for an immediate current fix makes the map recover right away instead of
+     * waiting for the next periodic update.
+     */
+    private val providerChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == LocationManager.PROVIDERS_CHANGED_ACTION && isLocationOn()) {
+                requestCurrentLocation()
             }
+        }
+    }
+
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) = handleLocation(location)
+    }
+
+    /**
+     * Processes one location fix.
+     *
+     * How it works: converts the platform location into a provider-agnostic
+     * [LocationSample], broadcasts it to the UI through [LocationUpdates] (map
+     * rendering) and feeds it to the travel repository, which applies the
+     * spatial/temporal filters and appends it to the active travel path.
+     *
+     * @param location the raw fix delivered by the fused location provider.
+     */
+    private fun handleLocation(location: Location) {
+        val sample = LocationSample(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            recordedAtUtcMillis = location.time,
+            accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
+        )
+        // Let the map layer render the new position immediately.
+        LocationUpdates.publish(sample)
+        // Persist it into the active travel path (filters live in the repository).
+        serviceScope.launch {
+            AppContainer.travelRepository(applicationContext).recordLocation(sample)
         }
     }
 
@@ -80,6 +113,14 @@ class TrackingService : Service() {
         if (!wasStopRequested()) {
             startAsForeground()
         }
+        // Listen for the location providers being turned on, so tracking can
+        // resume with an immediate fix (see [providerChangedReceiver]).
+        ContextCompat.registerReceiver(
+            this,
+            providerChangedReceiver,
+            IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -100,6 +141,7 @@ class TrackingService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(providerChangedReceiver)
         stopLocationUpdates()
         serviceScope.cancel()
         super.onDestroy()
@@ -185,20 +227,44 @@ class TrackingService : Service() {
      * accuracy plus the 10 s / 10 m thresholds to save battery.
      */
     private fun startLocationUpdates() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-            val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-            if (fine != PackageManager.PERMISSION_GRANTED &&
-                coarse != PackageManager.PERMISSION_GRANTED
-            ) {
-                return
-            }
-        }
+        if (!hasLocationPermission()) return
         val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, UPDATE_INTERVAL_MS)
             .setMinUpdateDistanceMeters(MIN_DISPLACEMENT_METERS)
             .build()
         LocationServices.getFusedLocationProviderClient(this)
             .requestLocationUpdates(request, locationListener, Looper.getMainLooper())
+    }
+
+    /**
+     * Asks the fused provider for a single fresh fix.
+     *
+     * How it works: called when the user enables location while the service is
+     * already running, so the map gets a position without waiting for the next
+     * periodic update (or an app restart). Failures are ignored: the periodic
+     * [startLocationUpdates] request will deliver fixes shortly after.
+     */
+    private fun requestCurrentLocation() {
+        if (!hasLocationPermission()) return
+        LocationServices.getFusedLocationProviderClient(this)
+            .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+            .addOnSuccessListener { location -> location?.let { handleLocation(it) } }
+            .addOnFailureListener { /* periodic updates will cover it */ }
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+            val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+            return fine == PackageManager.PERMISSION_GRANTED ||
+                coarse == PackageManager.PERMISSION_GRANTED
+        }
+        return true
+    }
+
+    private fun isLocationOn(): Boolean {
+        val manager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
 
     private fun stopLocationUpdates() {
