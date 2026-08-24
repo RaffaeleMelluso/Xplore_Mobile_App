@@ -18,6 +18,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,79 +66,83 @@ fun LoginScreen(
     onEmailSubmit: () -> Unit,
     onForgotPasswordClick: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            // Allow the form to scroll when the keyboard or a small screen shrinks the viewport.
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        // Header: app name and a short description.
-        Text(
-            text = stringResource(id = R.string.login_title),
-            style = MaterialTheme.typography.headlineMedium,
-            textAlign = TextAlign.Center
-        )
-        Text(
-            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
-            text = stringResource(id = R.string.login_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center
-        )
-
-        // Busy indicator shown while any authentication operation is running.
-        if (uiState.isLoading) {
-            CircularProgressIndicator(modifier = Modifier.padding(bottom = 16.dp))
-        }
-
-        if (uiState.isAuthenticated) {
-            // Already authenticated: show identity and logout only.
-            SignedInSection(uiState = uiState, onSignOutClick = onSignOutClick)
-        } else {
-            // Not authenticated: show the credentials form plus the Google provider.
-            CredentialsForm(
-                uiState = uiState,
-                onEmailChanged = onEmailChanged,
-                onPasswordChanged = onPasswordChanged,
-                onToggleMode = onToggleMode,
-                onEmailSubmit = onEmailSubmit,
-                onForgotPasswordClick = onForgotPasswordClick
+    // Scaffold provides the same background as the home screen, keeping
+    // the light/dark palette consistent across every screen.
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Header: app name and a short description.
+            Text(
+                text = stringResource(id = R.string.login_title),
+                style = MaterialTheme.typography.headlineMedium,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
+                text = stringResource(id = R.string.login_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
             )
 
-            // Visual separator between the two authentication providers.
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            OutlinedButton(
-                onClick = onGoogleSignInClick,
-                enabled = !uiState.isLoading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = stringResource(id = R.string.login_with_google))
+            // Busy indicator shown while any authentication operation is running.
+            if (uiState.isLoading) {
+                CircularProgressIndicator(modifier = Modifier.padding(bottom = 16.dp))
             }
-        }
 
-        // Validation or provider error mapped to a localized message here in the UI.
-        uiState.error?.let { error ->
-            Text(
-                modifier = Modifier.padding(top = 16.dp),
-                text = stringResource(id = error.messageRes()),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center
-            )
-        }
+            if (uiState.isAuthenticated) {
+                // Already authenticated: show identity and logout only.
+                SignedInSection(uiState = uiState, onSignOutClick = onSignOutClick)
+            } else {
+                // Not authenticated: show the credentials form plus the Google provider.
+                CredentialsForm(
+                    uiState = uiState,
+                    onEmailChanged = onEmailChanged,
+                    onPasswordChanged = onPasswordChanged,
+                    onToggleMode = onToggleMode,
+                    onEmailSubmit = onEmailSubmit,
+                    onForgotPasswordClick = onForgotPasswordClick
+                )
 
-        // Confirmation that the password reset email was sent.
-        uiState.passwordResetEmailSentTo?.let { email ->
-            Text(
-                modifier = Modifier.padding(top = 16.dp),
-                text = stringResource(id = R.string.login_password_reset_sent, email),
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center
-            )
+                // Visual separator between the two authentication providers.
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                OutlinedButton(
+                    onClick = onGoogleSignInClick,
+                    enabled = !uiState.isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = stringResource(id = R.string.login_with_google))
+                }
+            }
+
+            // Validation or provider error mapped to a localized message here in the UI.
+            uiState.error?.let { error ->
+                Text(
+                    modifier = Modifier.padding(top = 16.dp),
+                    text = stringResource(id = error.messageRes()),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            // Confirmation that the password reset email was sent.
+            uiState.passwordResetEmailSentTo?.let { email ->
+                Text(
+                    modifier = Modifier.padding(top = 16.dp),
+                    text = stringResource(id = R.string.login_password_reset_sent, email),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }

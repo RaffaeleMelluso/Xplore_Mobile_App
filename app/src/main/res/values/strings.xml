@@ -28,4 +28,26 @@
     <string name="login_error_too_many_requests">Too many attempts, please try again later.</string>
     <string name="login_error_network">Network error, please try again.</string>
     <string name="login_error_unknown">Authentication failed.</string>
+    <!-- Home navigation -->
+    <string name="tab_map">Map</string>
+    <string name="tab_travel">Journal</string>
+    <string name="tab_trends">Trends</string>
+    <string name="tab_profile">Profile</string>
+    <string name="placeholder_coming_soon">Coming soon</string>
+    <string name="placeholder_travel">Your travel journal with routes, photos and visited places will live here.</string>
+    <string name="placeholder_trends">Trends and recommendations from other travelers will live here.</string>
+    <!-- Map screen -->
+    <string name="map_recenter">Recenter on my location</string>
+    <string name="map_close_info">Close details</string>
+    <string name="map_ghost_title">Other traveler</string>
+    <string name="map_ghost_snippet">Traveling near you right now.</string>
+    <string name="map_warning_permission">Location permission is needed to track your route.</string>
+    <string name="map_warning_gps">Location services are off. Enable them to see your position.</string>
+    <string name="map_warning_grant">Grant</string>
+    <string name="map_warning_enable">Enable</string>
+    <!-- Tracking service -->
+    <string name="tracking_channel_name">Travel tracking</string>
+    <string name="tracking_notification_title">Tracking your route</string>
+    <string name="tracking_notification_text">Location is being recorded for your current travel.</string>
+    <string name="tracking_stop">Stop tracking</string>
 </resources>

@@ -13,4 +13,7 @@ interface PoiDao {
 
     @Query("SELECT * FROM pois ORDER BY id DESC")
     fun allPois(): Flow<List<PoiEntity>>
+
+    @Query("SELECT COUNT(*) FROM pois")
+    suspend fun count(): Int
 }

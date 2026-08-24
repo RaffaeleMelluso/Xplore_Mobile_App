@@ -39,6 +39,9 @@ val SeashellSurfaceVariant = Color(0xFFD9E4E4)
 val OnSeashellSurfaceVariant = Color(0xFF3F4948)
 val SeashellOutline = Color(0xFF6F7978)
 
+/** Slightly deeper seashell for containers that need elevation (navbar, bars). */
+val SeashellSurfaceContainer = Color(0xFFF0ECE4)
+
 // --- Dark theme ------------------------------------------------------------
 
 /** Sea-foam teal: primary actions in dark mode. */
@@ -65,6 +68,9 @@ val OnAbyss = Color(0xFFDFE4E2)
 val AbyssSurfaceVariant = Color(0xFF3F4948)
 val OnAbyssSurfaceVariant = Color(0xFFBFC9C7)
 val AbyssOutline = Color(0xFF899392)
+
+/** Slightly lighter abyss for containers that need elevation (navbar, bars). */
+val AbyssSurfaceContainer = Color(0xFF1B211F)
 
 // --- Semantic error colors (high contrast in both modes) --------------------
 
