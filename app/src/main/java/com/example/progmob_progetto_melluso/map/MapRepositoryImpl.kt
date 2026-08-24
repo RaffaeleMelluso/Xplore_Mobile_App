@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -34,7 +35,14 @@ class MapRepositoryImpl(
     private val clock: () -> Long = System::currentTimeMillis
 ) : MapRepository {
 
-    override fun observeCurrentLocation(): Flow<LocationSample> = locationFlow
+    override fun observeCurrentLocation(): Flow<LocationSample?> =
+        // Emit null before the first fix so the combined map state renders
+        // (POIs, ghosts, base map) even when location is not available yet,
+        // instead of waiting forever on the location stream.
+        flow {
+            emit(null)
+            emitAll(locationFlow)
+        }
 
     override fun observePois(): Flow<List<PoiEntity>> = poiDao.allPois()
 
@@ -58,8 +66,14 @@ class MapRepositoryImpl(
         }.distinctUntilChanged()
 
     override suspend fun ensurePoiSeed() {
-        if (poiDao.count() > 0) return
-        poiSeed.forEach { poiDao.insert(it) }
+        // Idempotent per title: inserts only the entries that are not present
+        // yet, so new demo sets (for example a new city) are added on existing
+        // installs without duplicating the POIs already stored.
+        poiSeed.forEach { poi ->
+            if (poiDao.countByTitle(poi.title) == 0) {
+                poiDao.insert(poi)
+            }
+        }
     }
 
     /**

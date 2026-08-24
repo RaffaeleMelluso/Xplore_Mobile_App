@@ -1,18 +1,35 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
+# ===== Android / Gradle build artifacts =====
 /build
-/captures
+**/build/
+.gradle
+local.properties
+*.apk
+*.aab
+*.aar
+*.hprof
+*.jks
+*.keystore
+*.log
+captures/
 .externalNativeBuild
 .cxx
-local.properties
-app/ProjectScheme.md
-app/ImplementationChecklist.md
-/.freebuff
+
+# ===== Kotlin =====
+.kotlin/
+
+# ===== IDE =====
+.idea/
+.fleet/
+*.iml
+
+# ===== OS =====
+.DS_Store
+
+# ===== Agent / assistant state (Freebuff, Codebuff, etc.) =====
+.freebuff/
+.codebuff/
+
+# ===== Artifacts & project documentation (generated .md notes, not versioned) =====
+.artifacts/
+**/.artifacts/
+app/*.md

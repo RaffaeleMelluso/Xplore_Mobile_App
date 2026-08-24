@@ -1,5 +1,6 @@
 package com.example.progmob_progetto_melluso.ui.home
 
+import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -120,5 +122,31 @@ fun ProfilePlaceholder(
         OutlinedButton(onClick = onSignOut) {
             Text(stringResource(R.string.logout))
         }
+        // Build identifier: lets you confirm at a glance which version is installed.
+        Spacer(Modifier.height(32.dp))
+        Text(
+            text = stringResource(R.string.app_version_label, installedVersionName()),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+    }
+}
+
+/**
+ * Reads the installed version name without relying on BuildConfig.
+ *
+ * How it works: asks the package manager for the package info of this app and
+ * returns its [PackageInfo.versionName]; falls back to an empty string if the
+ * lookup fails (should never happen in practice).
+ *
+ * @return the version name (for example "1.1") or "" on failure.
+ */
+@Composable
+private fun installedVersionName(): String {
+    val context = LocalContext.current
+    return try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+    } catch (exception: PackageManager.NameNotFoundException) {
+        ""
     }
 }
