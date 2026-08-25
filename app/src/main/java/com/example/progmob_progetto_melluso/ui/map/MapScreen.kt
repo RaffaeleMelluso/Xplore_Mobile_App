@@ -58,6 +58,7 @@ import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.travel.LocationSample
+import com.example.progmob_progetto_melluso.travel.PathSegmenter
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
@@ -419,15 +420,26 @@ private class MapOverlays(
         )
     }
 
+    /**
+     * Draws the travel path as one polyline per continuous segment.
+     *
+     * How it works: [PathSegmenter.split] breaks the point list where the
+     * tracking was interrupted (app killed, GPS off), so the map never draws
+     * a false straight line across the distance covered while untracked.
+     */
     private fun updatePath(points: List<TravelPathPointEntity>) {
         val signature = points.hashCode()
         if (signature == lastPathSignature) return
         lastPathSignature = signature
-        if (points.size >= 2) {
-            val line = LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) })
-            pathSource.setGeoJson(
-                FeatureCollection.fromFeatures(arrayOf(Feature.fromGeometry(line)))
-            )
+        val segments = PathSegmenter.split(points)
+        if (segments.isNotEmpty()) {
+            val features = segments.map { segment ->
+                val line = LineString.fromLngLats(
+                    segment.map { Point.fromLngLat(it.longitude, it.latitude) }
+                )
+                Feature.fromGeometry(line)
+            }
+            pathSource.setGeoJson(FeatureCollection.fromFeatures(features))
         } else {
             pathSource.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
         }

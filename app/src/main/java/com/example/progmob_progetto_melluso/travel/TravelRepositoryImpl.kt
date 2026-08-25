@@ -97,23 +97,40 @@ class TravelRepositoryImpl(
                 return@withLock LocationRecordResult.Recorded(newTravel.id, true)
             }
 
-            // 3. Spatial/temporal filter relative to the last recorded point:
-            //    always keep the first point, then keep only meaningful movement
-            //    to save battery and disk writes. A stationary fix is never
-            //    stored even after the time threshold.
+            // 3. Accuracy gate relative to the previous point: a fix whose
+            //    reported error exceeds maxAccuracyMeters is mostly GPS noise
+            //    (typical while standing still) and would draw zigzag
+            //    artifacts on the path. The first fix is always accepted,
+            //    otherwise a cold GPS could never create the anchor point.
+            val accuracy = sample.accuracyMeters?.toDouble() ?: 0.0
+            if (lastPoint != null && accuracy > config.maxAccuracyMeters) {
+                return@withLock LocationRecordResult.Skipped
+            }
+
+            // 4. Spatial AND temporal filters relative to the last recorded
+            //    point (spec §7.2): a point is stored only after BOTH a
+            //    meaningful movement and a minimum time interval. The spatial
+            //    threshold grows with the average accuracy error of the two
+            //    fixes, so jitter smaller than the GPS uncertainty never
+            //    pollutes the path. The two thresholds are combined with AND:
+            //    an OR would re-record stationary GPS drift after the temporal
+            //    threshold alone (the old "imprecise path while standing
+            //    still" bug).
             val distanceFromLast = lastPoint?.let {
                 GeoUtils.haversineMeters(it.latitude, it.longitude, sample.latitude, sample.longitude)
             } ?: 0.0
             val elapsedFromLast = lastPoint?.let {
                 sample.recordedAtUtcMillis - it.recordedAtUtcMillis
             } ?: Long.MAX_VALUE
+            val accuracyBuffer =
+                (accuracy + (lastPoint?.accuracyMeters ?: 0f).toDouble()) / 2.0
+            val spatialThreshold = maxOf(config.minDistanceMeters, accuracyBuffer)
 
             val shouldRecord = lastPoint == null ||
-                distanceFromLast >= config.minDistanceMeters ||
-                (elapsedFromLast >= config.minElapsedMillis && distanceFromLast > 0.0)
+                (distanceFromLast >= spatialThreshold && elapsedFromLast >= config.minElapsedMillis)
             if (!shouldRecord) return@withLock LocationRecordResult.Skipped
 
-            // 4. Store the point; the first one becomes the trip anchor.
+            // 5. Store the point; the first one becomes the trip anchor.
             val point = newPathPoint(activeTravel.id, sample)
             pathPointDao.insert(point)
             if (anchorPoint == null) anchorPoint = point
