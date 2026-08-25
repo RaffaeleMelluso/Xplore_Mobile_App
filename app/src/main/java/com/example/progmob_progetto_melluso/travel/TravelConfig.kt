@@ -8,16 +8,25 @@ package com.example.progmob_progetto_melluso.travel
  * instead of the production defaults.
  *
  * @property minDistanceMeters Minimum distance from the last recorded point
- *   before a new path point is stored (spatial filter, battery saving).
+ *   before a new path point is stored (spatial filter). Low enough to follow
+ *   streets closely, high enough to skip micro-noise (battery saving).
  * @property minElapsedMillis Minimum time since the last recorded point before
- *   a new path point is stored (temporal filter, battery saving).
+ *   a new path point is stored (temporal filter, battery saving). Combined
+ *   with an AND semantics on the spatial filter: both thresholds must be met.
+ * @property maxAccuracyMeters Maximum horizontal accuracy error (in meters)
+ *   accepted for a fix. Fixes reported as less precise than this are discarded
+ *   when a previous point exists: they are mostly GPS noise while standing
+ *   still and would draw zigzag artifacts on the path. The very first fix of
+ *   a travel is always accepted, otherwise no anchor could ever be created
+ *   with a cold GPS.
  * @property tripEndDistanceMeters Straight-line distance from the trip's anchor
  *   point (its first recorded location) at which the trip is closed
  *   automatically: leaving the vacation area by this distance means the
  *   vacation is over. Default 50 km.
  */
 data class TravelConfig(
-    val minDistanceMeters: Double = 10.0,
+    val minDistanceMeters: Double = 5.0,
     val minElapsedMillis: Long = 10_000L,
+    val maxAccuracyMeters: Float = 25f,
     val tripEndDistanceMeters: Double = 50_000.0
 )
