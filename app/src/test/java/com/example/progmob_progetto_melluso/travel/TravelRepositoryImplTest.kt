@@ -22,7 +22,8 @@ class TravelRepositoryImplTest {
     /** Small deterministic thresholds so tests don't need real distances. */
     private val config = TravelConfig(
         minDistanceMeters = 10.0,
-        minElapsedMillis = 10_000L,
+        minElapsedMillis = 1_000L,
+        maxAccuracyMeters = 25f,
         tripEndDistanceMeters = 100.0
     )
 
@@ -161,11 +162,12 @@ class TravelRepositoryImplTest {
     }
 
     /**
-     * Verifica che un punto venga registrato se è passato abbastanza tempo dall'ultimo,
-     * anche se lo spostamento spaziale è minimo.
+     * Verifica che i filtri spaziale e temporale siano combinati con semantica
+     * AND (spec §7.2): uno spostamento sufficiente ma troppo ravvicinato nel
+     * tempo rispetto all'ultimo punto NON viene registrato.
      */
     @Test
-    fun recordLocation_recordsWhenElapsedThresholdMet() = runTest {
+    fun recordLocation_skipsBeforeTemporalThreshold() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
@@ -174,11 +176,99 @@ class TravelRepositoryImplTest {
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
-        // ~2m away but 15s later: temporal threshold met, must be recorded.
-        val result = repository.recordLocation(LocationSample(0.000018, 0.0, 15_000L))
+        // ~55 m away (beyond the spatial threshold) but only 500 ms later:
+        // the temporal threshold is not met, must be skipped.
+        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 500L))
+
+        assertEquals(LocationRecordResult.Skipped, result)
+        verify(pathPointDao, times(1)).insert(any())
+    }
+
+    /**
+     * Verifica che un punto venga registrato quando supera ENTRAMBE le soglie,
+     * spaziale e temporale.
+     */
+    @Test
+    fun recordLocation_recordsWhenBothThresholdsMet() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        // ~55 m away and 2 s later: both thresholds met, must be recorded.
+        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 2_000L))
 
         assertTrue(result is LocationRecordResult.Recorded)
         verify(pathPointDao, times(2)).insert(any())
+    }
+
+    /**
+     * Verifica che un fix con accuratezza scadente venga scartato quando esiste
+     * già un punto precedente: è rumore GPS e sporcherebbe il percorso.
+     */
+    @Test
+    fun recordLocation_skipsInaccurateFix() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        // ~55 m away (inside the vacation radius, beyond the spatial
+        // threshold) but with a reported error above the maximum accepted
+        // accuracy: must be skipped.
+        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 5_000L, accuracyMeters = 60f))
+
+        assertEquals(LocationRecordResult.Skipped, result)
+        verify(pathPointDao, times(1)).insert(any())
+    }
+
+    /**
+     * Verifica che il primo punto di un viaggio venga accettato anche se la
+     * sua accuratezza è scadente: senza di esso non esisterebbe mai l'ancora.
+     */
+    @Test
+    fun recordLocation_acceptsFirstPointEvenIfInaccurate() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+
+        val result = repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 90f))
+
+        assertTrue(result is LocationRecordResult.Recorded)
+    }
+
+    /**
+     * Verifica che lo jitter GPS da fermo non venga registrato nemmeno se lo
+     * spostamento apparente supera la soglia spaziale minima: la soglia effettiva
+     * cresce con l'errore di accuratezza medio dei due fix.
+     */
+    @Test
+    fun recordLocation_skipsJitterWithinAccuracyBuffer() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+
+        // Both fixes report ±20 m of error: the effective threshold is the
+        // average buffer (20 m), above the 15 m apparent displacement.
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 20f))
+        val result = repository.recordLocation(
+            LocationSample(0.000135, 0.0, 30_000L, accuracyMeters = 20f)
+        )
+
+        assertEquals(LocationRecordResult.Skipped, result)
+        verify(pathPointDao, times(1)).insert(any())
     }
 
     /**

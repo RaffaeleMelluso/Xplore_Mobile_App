@@ -223,12 +223,20 @@ class TrackingService : Service() {
      *
      * How it works: guards against missing runtime permissions (the activity
      * requests them before starting this service, but the check keeps the
-     * service safe if it is restarted by the system). Uses balanced power
-     * accuracy plus the 10 s / 10 m thresholds to save battery.
+     * service safe if it is restarted by the system). Uses high accuracy when
+     * the fine location permission is granted (a street-adherent path needs
+     * frequent, precise fixes), falling back to balanced power with coarse
+     * permission only. The 5 s / 5 m thresholds keep the sampling dense; the
+     * repository accuracy/spatial filters discard the resulting noise.
      */
     private fun startLocationUpdates() {
         if (!hasLocationPermission()) return
-        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, UPDATE_INTERVAL_MS)
+        val priority = if (hasFineLocationPermission()) {
+            Priority.PRIORITY_HIGH_ACCURACY
+        } else {
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        }
+        val request = LocationRequest.Builder(priority, UPDATE_INTERVAL_MS)
             .setMinUpdateDistanceMeters(MIN_DISPLACEMENT_METERS)
             .build()
         LocationServices.getFusedLocationProviderClient(this)
@@ -257,6 +265,15 @@ class TrackingService : Service() {
             val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
             return fine == PackageManager.PERMISSION_GRANTED ||
                 coarse == PackageManager.PERMISSION_GRANTED
+        }
+        return true
+    }
+
+    /** True when the app may use the GPS-grade fine location provider. */
+    private fun hasFineLocationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
         }
         return true
     }
@@ -291,7 +308,7 @@ class TrackingService : Service() {
         private const val CHANNEL_ID = "tracking"
         private const val NOTIFICATION_ID = 1
         private const val STOP_REQUEST_CODE = 100
-        private const val UPDATE_INTERVAL_MS = 10_000L
-        private const val MIN_DISPLACEMENT_METERS = 10f
+        private const val UPDATE_INTERVAL_MS = 5_000L
+        private const val MIN_DISPLACEMENT_METERS = 5f
     }
 }

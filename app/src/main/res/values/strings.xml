@@ -38,6 +38,8 @@
     <string name="placeholder_travel">Your travel journal with routes, photos and visited places will live here.</string>
     <string name="placeholder_trends">Trends and recommendations from other travelers will live here.</string>
     <!-- Map screen -->
+    <string name="map_filter_live">Live</string>
+    <string name="map_filter_trips_button">Show my trips</string>
     <string name="map_recenter">Recenter on my location</string>
     <string name="map_close_info">Close details</string>
     <string name="map_ghost_title">Other traveler</string>
@@ -51,4 +53,41 @@
     <string name="tracking_notification_title">Tracking your route</string>
     <string name="tracking_notification_text">Location is being recorded for your current travel.</string>
     <string name="tracking_stop">Stop tracking</string>
+    <!-- Travel journal -->
+    <string name="journal_start_travel">Start trip</string>
+    <string name="journal_stop_travel">Stop trip</string>
+    <string name="journal_ongoing">Ongoing</string>
+    <string name="journal_empty_title">No trips yet</string>
+    <string name="journal_empty_body">Start a trip to begin your travel journal.</string>
+    <string name="journal_untitled">Untitled trip</string>
+    <string name="journal_view_details">View journal</string>
+    <string name="journal_back">Back</string>
+    <string name="journal_title_label">Title</string>
+    <string name="journal_description_label">What did you see?</string>
+    <string name="journal_save">Save</string>
+    <string name="journal_media_label">Photos and videos</string>
+    <string name="journal_add_photo">Add photo</string>
+    <string name="journal_add_video">Add video</string>
+    <string name="journal_remove_media">Remove</string>
+    <string name="journal_photo_description">Photo</string>
+    <string name="journal_video_description">Video</string>
+    <string name="journal_no_media">No photos or videos yet.</string>
+    <string name="journal_route_label">Route</string>
+    <string name="journal_cities_label">Places visited</string>
+    <string name="journal_no_cities">No places detected for this trip.</string>
+    <string name="journal_visits_label">Visited places</string>
+    <string name="journal_no_visits">No visited places recorded.</string>
+    <string name="journal_remove_visit">Remove visit</string>
+    <string name="journal_my_travels">My trips</string>
+    <string name="journal_rate_trip">Rate this trip</string>
+    <string name="journal_vote_up">Vote up</string>
+    <string name="journal_vote_down">Vote down</string>
+    <string name="journal_saved">Changes saved</string>
+    <string name="journal_delete_trip">Delete trip</string>
+    <string name="journal_delete_title">Delete this trip?</string>
+    <string name="journal_delete_body">This removes the trip, its path, photos and notes. This cannot be undone.</string>
+    <string name="journal_delete_confirm">Delete</string>
+    <string name="journal_delete_cancel">Cancel</string>
+    <string name="journal_no_video_player">No video player found</string>
+    <string name="journal_open_video_with">Open video with</string>
 </resources>

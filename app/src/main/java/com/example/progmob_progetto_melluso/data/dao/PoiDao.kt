@@ -14,6 +14,14 @@ interface PoiDao {
     @Query("SELECT * FROM pois ORDER BY id DESC")
     fun allPois(): Flow<List<PoiEntity>>
 
+    /** One-shot variant used by the visit detection while recording. */
+    @Query("SELECT * FROM pois")
+    suspend fun allPoisOnce(): List<PoiEntity>
+
+    /** Refreshes the cached ranking counter after a vote. */
+    @Query("UPDATE pois SET votes = :votes WHERE id = :id")
+    suspend fun updateVotes(id: Long, votes: Int)
+
     @Query("SELECT COUNT(*) FROM pois")
     suspend fun count(): Int
 

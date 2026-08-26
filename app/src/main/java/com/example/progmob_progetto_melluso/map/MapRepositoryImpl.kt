@@ -1,8 +1,11 @@
 package com.example.progmob_progetto_melluso.map
 
 import com.example.progmob_progetto_melluso.data.dao.PoiDao
+import com.example.progmob_progetto_melluso.data.dao.TravelCityDao
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.TravelRepository
@@ -29,6 +32,7 @@ import kotlinx.coroutines.flow.onStart
 class MapRepositoryImpl(
     private val locationFlow: Flow<LocationSample>,
     private val poiDao: PoiDao,
+    private val travelCityDao: TravelCityDao,
     private val travelRepository: TravelRepository,
     private val ghostSimulator: GhostSimulator,
     private val poiSeed: List<PoiEntity> = emptyList(),
@@ -56,6 +60,13 @@ class MapRepositoryImpl(
                 }
             }
             .distinctUntilChanged()
+
+    override fun observePathFor(travelId: Long): Flow<List<TravelPathPointEntity>> =
+        travelRepository.observePathPoints(travelId)
+
+    override fun observeTravels(): Flow<List<TravelEntity>> = travelRepository.observeTravels()
+
+    override fun observeTravelCities(): Flow<List<TravelCityEntity>> = travelCityDao.allCities()
 
     override fun observeGhosts(): Flow<List<GhostEntity>> =
         combine(

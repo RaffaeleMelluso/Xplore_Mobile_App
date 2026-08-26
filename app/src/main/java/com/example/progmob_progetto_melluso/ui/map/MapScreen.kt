@@ -8,22 +8,31 @@ import android.location.LocationManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,8 +65,13 @@ import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.core.GeoUtils
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.travel.LocationSample
+import com.example.progmob_progetto_melluso.travel.PathSegmenter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
@@ -74,7 +88,9 @@ import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 /** OpenFreeMap vector style (free, no API key, no OSM tile-policy issues). */
-private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+// internal so the journal's off-screen MapSnapshotter reuses the same style
+// (single source of truth for the OpenFreeMap tiles).
+internal const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
 /**
  * Map screen: MapLibre Native with OpenFreeMap vector tiles, the user position,
@@ -103,6 +119,9 @@ fun MapScreen(modifier: Modifier = Modifier) {
     val overlaysRef = remember { mutableStateOf<MapOverlays?>(null) }
     val lastCamera = remember { mutableStateOf<LatLng?>(null) }
     var recenterTick by remember { mutableIntStateOf(0) }
+
+    // Whether the travel-filter bottom sheet is open (via button).
+    var showTravelFilter by remember { mutableStateOf(false) }
 
     // Selected marker info window: the tapped POI or ghost, shown as a card.
     var selectedPoi by remember { mutableStateOf<PoiEntity?>(null) }
@@ -246,6 +265,34 @@ fun MapScreen(modifier: Modifier = Modifier) {
             gpsEnabled = gpsEnabled
         )
 
+        // Travel filter: a button opens a bottom sheet listing the trips; the
+        // chosen one is drawn alone on the map (one trip at a time).
+        if (mapReady) {
+            FloatingActionButton(
+                onClick = { showTravelFilter = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 88.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.List,
+                    contentDescription = stringResource(R.string.map_filter_trips_button)
+                )
+            }
+        }
+        if (showTravelFilter) {
+            TravelFilterSheet(
+                travels = uiState.travels,
+                travelCities = uiState.travelCities,
+                displayedTravelId = uiState.displayedTravelId,
+                onSelect = { travelId ->
+                    viewModel.selectTravel(travelId)
+                    showTravelFilter = false
+                },
+                onDismiss = { showTravelFilter = false }
+            )
+        }
+
         if (uiState.isLoading && mapReady) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
@@ -316,6 +363,102 @@ fun MapScreen(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * Bottom sheet listing the trips to show on the map, one at a time.
+ *
+ * How it works: a leading "Live" row restores the active travel/live position;
+ * every travel gets its own row (title or start date, with the detected
+ * cities as subtitle); the selected row is checked. Choosing a row closes the
+ * sheet and forwards the id to [MapViewModel], which switches the path.
+ * A bottom sheet scales with years of trips: it scrolls instead of flooding
+ * the map with chips.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TravelFilterSheet(
+    travels: List<TravelEntity>,
+    travelCities: Map<Long, List<String>>,
+    displayedTravelId: Long?,
+    onSelect: (Long?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.journal_my_travels),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+            TravelSheetRow(
+                label = stringResource(R.string.map_filter_live),
+                selected = displayedTravelId == null,
+                onClick = { onSelect(null) }
+            )
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                items(travels, key = { it.id }) { travel ->
+                    TravelSheetRow(
+                        label = travel.title ?: travelLabel(travel.startUtcMillis),
+                        subtitle = travelCities[travel.id]
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", "),
+                        selected = displayedTravelId == travel.id,
+                        onClick = { onSelect(travel.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One selectable row of the travel-filter sheet. */
+@Composable
+private fun TravelSheetRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+        }
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/** Short auto label for a travel without a title, e.g. "24 Aug 2026". */
+private fun travelLabel(startUtcMillis: Long): String =
+    SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(startUtcMillis))
 
 /** Simple holder for the info card fields. */
 private data class InfoContent(val title: String, val subtitle: String)
@@ -419,15 +562,26 @@ private class MapOverlays(
         )
     }
 
+    /**
+     * Draws the travel path as one polyline per continuous segment.
+     *
+     * How it works: [PathSegmenter.split] breaks the point list where the
+     * tracking was interrupted (app killed, GPS off), so the map never draws
+     * a false straight line across the distance covered while untracked.
+     */
     private fun updatePath(points: List<TravelPathPointEntity>) {
         val signature = points.hashCode()
         if (signature == lastPathSignature) return
         lastPathSignature = signature
-        if (points.size >= 2) {
-            val line = LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) })
-            pathSource.setGeoJson(
-                FeatureCollection.fromFeatures(arrayOf(Feature.fromGeometry(line)))
-            )
+        val segments = PathSegmenter.split(points)
+        if (segments.isNotEmpty()) {
+            val features = segments.map { segment ->
+                val line = LineString.fromLngLats(
+                    segment.map { Point.fromLngLat(it.longitude, it.latitude) }
+                )
+                Feature.fromGeometry(line)
+            }
+            pathSource.setGeoJson(FeatureCollection.fromFeatures(features))
         } else {
             pathSource.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
         }

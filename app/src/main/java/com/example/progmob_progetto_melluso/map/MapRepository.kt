@@ -2,6 +2,8 @@ package com.example.progmob_progetto_melluso.map
 
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +33,18 @@ interface MapRepository {
 
     /** Emits the ordered path points of the active travel (empty when no travel). */
     fun observeActivePath(): Flow<List<TravelPathPointEntity>>
+
+    /** Emits the ordered path points of a specific travel (map filter). */
+    fun observePathFor(travelId: Long): Flow<List<TravelPathPointEntity>>
+
+    /** Emits the travels (journal) so the map can offer a one-at-a-time filter. */
+    fun observeTravels(): Flow<List<TravelEntity>>
+
+    /**
+     * Emits the detected destinations (cities) of every travel, used by the
+     * map filter to categorize each trip with the places it visited.
+     */
+    fun observeTravelCities(): Flow<List<TravelCityEntity>>
 
     /** Emits the ghosts that move around the current user position. */
     fun observeGhosts(): Flow<List<GhostEntity>>

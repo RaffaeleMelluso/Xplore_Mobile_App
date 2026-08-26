@@ -22,6 +22,24 @@ interface TravelDao {
     @Query("SELECT * FROM travels WHERE id = :travelId LIMIT 1")
     fun travelById(travelId: Long): Flow<TravelEntity?>
 
+    /** One-shot variant used by the journal when editing a travel. */
+    @Query("SELECT * FROM travels WHERE id = :travelId LIMIT 1")
+    suspend fun travelByIdOnce(travelId: Long): TravelEntity?
+
+    /**
+     * The most recently closed travel: used by the journal right after a stop
+     * to finalize the destinations and the POI visits of the trip just ended.
+     */
+    @Query("SELECT * FROM travels WHERE endUtcMillis IS NOT NULL ORDER BY endUtcMillis DESC LIMIT 1")
+    suspend fun mostRecentClosedTravelOnce(): TravelEntity?
+
+    /**
+     * Deletes a travel. Everything linked to it (path points, photos, cities,
+     * POI visits) is removed by the ON DELETE CASCADE foreign keys.
+     */
+    @Query("DELETE FROM travels WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     /** Emits the single travel still in progress (endUtcMillis is null). via flow*/
     @Query("SELECT * FROM travels WHERE endUtcMillis IS NULL LIMIT 1")
     fun activeTravel(): Flow<TravelEntity?>

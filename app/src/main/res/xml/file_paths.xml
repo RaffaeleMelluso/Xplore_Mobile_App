@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Paths exposed through the FileProvider: only the app's private media
+    directory (filesDir/media), where picked photos/videos are copied. The
+    provider is used to hand a content:// URI to the system video player.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="media" path="media/" />
+</paths>
