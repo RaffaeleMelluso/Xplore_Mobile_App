@@ -17,4 +17,23 @@ interface PoiVoteDao {
 
     @Query("SELECT COALESCE(SUM(voteValue), 0) FROM poi_votes WHERE poiId = :poiId")
     fun voteScoreForPoi(poiId: Long): Flow<Long>
+
+    /**
+     * All the votes of the signed-in user, so the journal can highlight the
+     * up/down state of every visited POI reactively.
+     */
+    @Query("SELECT * FROM poi_votes WHERE voterUserId = :voterId")
+    fun myVotes(voterId: String): Flow<List<PoiVoteEntity>>
+
+    /** The current vote of the user on a POI (null when never voted). */
+    @Query("SELECT voteValue FROM poi_votes WHERE poiId = :poiId AND voterUserId = :voterId LIMIT 1")
+    suspend fun myVoteOnce(poiId: Long, voterId: String): Int?
+
+    /** One-shot score used to refresh the cached POI counter after voting. */
+    @Query("SELECT COALESCE(SUM(voteValue), 0) FROM poi_votes WHERE poiId = :poiId")
+    suspend fun voteScoreForPoiOnce(poiId: Long): Long
+
+    /** Removes the user's vote (toggling the same vote off again). */
+    @Query("DELETE FROM poi_votes WHERE poiId = :poiId AND voterUserId = :voterId")
+    suspend fun removeVote(poiId: Long, voterId: String)
 }

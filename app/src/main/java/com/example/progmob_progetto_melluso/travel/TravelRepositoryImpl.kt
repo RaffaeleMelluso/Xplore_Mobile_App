@@ -1,10 +1,13 @@
 package com.example.progmob_progetto_melluso.travel
 
 import com.example.progmob_progetto_melluso.core.GeoUtils
+import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
+import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,7 +27,9 @@ import kotlinx.coroutines.sync.withLock
  *
  * @param travelDao DAO for the travels table.
  * @param pathPointDao DAO for the recorded path points.
- * @param config Recording and trip-end thresholds.
+ * @param poiDao DAO for the POIs, used by the automatic visit detection.
+ * @param travelPoiVisitDao DAO for the visits recorded in the journal.
+ * @param config Recording, trip-end and POI-geofence thresholds.
  * @param timeZoneIdProvider Supplies the reference timezone stored on each
  *   travel, used for correct day bucketing when the user crosses time zones.
  * @param clock Supplies "now" in UTC millis; injectable for deterministic tests.
@@ -32,6 +37,8 @@ import kotlinx.coroutines.sync.withLock
 class TravelRepositoryImpl(
     private val travelDao: TravelDao,
     private val pathPointDao: TravelPathPointDao,
+    private val poiDao: PoiDao,
+    private val travelPoiVisitDao: TravelPoiVisitDao,
     private val config: TravelConfig = TravelConfig(),
     private val timeZoneIdProvider: () -> String = { "UTC" },
     private val clock: () -> Long = { System.currentTimeMillis() }
@@ -90,6 +97,7 @@ class TravelRepositoryImpl(
                 val newTravel = createActiveTravel(sample.recordedAtUtcMillis)
                 val point = newPathPoint(newTravel.id, sample)
                 pathPointDao.insert(point)
+                detectVisitsNear(newTravel.id, sample)
 
                 trackedTravelId = newTravel.id
                 anchorPoint = point
@@ -130,14 +138,40 @@ class TravelRepositoryImpl(
                 (distanceFromLast >= spatialThreshold && elapsedFromLast >= config.minElapsedMillis)
             if (!shouldRecord) return@withLock LocationRecordResult.Skipped
 
-            // 5. Store the point; the first one becomes the trip anchor.
+            // 5. Store the point; the first one becomes the trip anchor. Then
+            //    check the POI geofence: every POI within the configured radius
+            //    gets a visit in the travel journal (spec §7.3, automatic).
             val point = newPathPoint(activeTravel.id, sample)
             pathPointDao.insert(point)
+            detectVisitsNear(activeTravel.id, sample)
             if (anchorPoint == null) anchorPoint = point
             lastPoint = point
 
             LocationRecordResult.Recorded(activeTravel.id, false)
         }
+
+    /**
+     * Registers a visit for every POI within the geofencing radius of this
+     * sample, keeping one visit per (travel, POI): re-passing near the same
+     * POI never duplicates it. Runs only when a point is actually stored, so
+     * it never fires on filtered GPS noise.
+     */
+    private suspend fun detectVisitsNear(travelId: Long, sample: LocationSample) {
+        val pois = poiDao.allPoisOnce()
+        if (pois.isEmpty()) return
+        PoiProximity.near(sample.latitude, sample.longitude, pois, config.poiVisitRadiusMeters)
+            .forEach { poi ->
+                if (travelPoiVisitDao.visitForTravelAndPoi(travelId, poi.id) == null) {
+                    travelPoiVisitDao.insert(
+                        TravelPoiVisitEntity(
+                            travelId = travelId,
+                            poiId = poi.id,
+                            visitedAtUtcMillis = sample.recordedAtUtcMillis
+                        )
+                    )
+                }
+            }
+    }
 
     /** Builds a path point for [travelId] from a location sample. */
     private fun newPathPoint(travelId: Long, sample: LocationSample) = TravelPathPointEntity(
