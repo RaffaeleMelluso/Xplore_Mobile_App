@@ -6,7 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Stores a photo added to a travel diary.
+ * Stores a media item (photo or video) added to a travel diary.
  */
 @Entity(
     tableName = "travel_photos",
@@ -20,17 +20,14 @@ import androidx.room.PrimaryKey
     ],
     indices = [Index(value = ["travelId"]), Index(value = ["capturedAtUtcMillis"])]
 )
-data class TravelPhotoEntity(
-    // Local database identifier for the photo.
+data class TravelMediaEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
-    // Related travel session.
     val travelId: Long,
-    // Uri or path of the image stored locally or remotely.
+    /** 'photo' or 'video'. */
+    val mediaType: String = "photo",
+    /** Local file URI of the image/video. */
     val imageUri: String,
-    // Optional caption for the photo.
     val caption: String?,
-    // Photo capture time stored in UTC.
     val capturedAtUtcMillis: Long,
-    // Optional user identifier of who uploaded the photo.
     val createdByUserId: String?
 )

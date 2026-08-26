@@ -23,10 +23,14 @@ package com.example.progmob_progetto_melluso.travel
  *   point (its first recorded location) at which the trip is closed
  *   automatically: leaving the vacation area by this distance means the
  *   vacation is over. Default 50 km.
+ * @property poiVisitRadiusMeters Geofencing radius around a POI: when a
+ *   recorded path point falls inside it, the visit is registered in the
+ *   travel journal (spec §7.3). Configurable, not hardcoded.
  */
 data class TravelConfig(
     val minDistanceMeters: Double = 5.0,
     val minElapsedMillis: Long = 10_000L,
     val maxAccuracyMeters: Float = 25f,
-    val tripEndDistanceMeters: Double = 50_000.0
+    val tripEndDistanceMeters: Double = 50_000.0,
+    val poiVisitRadiusMeters: Double = 150.0
 )

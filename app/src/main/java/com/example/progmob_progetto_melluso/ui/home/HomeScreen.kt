@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.progmob_progetto_melluso.R
+import com.example.progmob_progetto_melluso.ui.journal.TravelJournalScreen
 import com.example.progmob_progetto_melluso.ui.map.MapScreen
 
 /** Height reserved for the bottom bar (excluding the system navigation inset). */
@@ -91,11 +92,7 @@ fun HomeScreen(
         ) {
             when (HomeTab.entries[selectedTabIndex]) {
                 HomeTab.MAP -> MapScreen()
-                HomeTab.TRAVEL -> PlaceholderScreen(
-                    icon = Icons.AutoMirrored.Filled.List,
-                    titleRes = R.string.tab_travel,
-                    descriptionRes = R.string.placeholder_travel
-                )
+                HomeTab.TRAVEL -> TravelJournalScreen()
                 HomeTab.TRENDS -> PlaceholderScreen(
                     icon = Icons.Filled.Star,
                     titleRes = R.string.tab_trends,

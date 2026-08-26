@@ -18,6 +18,8 @@ data class TravelEntity(
     val travelTimeZoneId: String,
     // Optional title chosen by the user for the travel.
     val title: String?,
+    // Optional free-text diary note (what the user saw, in their own words).
+    val description: String? = null,
     // True when the travel should not expose the identity of the owner.
     val isAnonymous: Boolean = false
 )

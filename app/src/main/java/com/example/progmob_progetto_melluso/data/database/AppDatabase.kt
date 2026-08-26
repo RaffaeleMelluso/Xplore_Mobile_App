@@ -3,6 +3,8 @@ package com.example.progmob_progetto_melluso.data.database
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.progmob_progetto_melluso.data.dao.PoiVoteDao
 import com.example.progmob_progetto_melluso.data.dao.StepCheckpointDao
 import com.example.progmob_progetto_melluso.data.dao.StepDailySummaryDao
@@ -10,24 +12,26 @@ import com.example.progmob_progetto_melluso.data.dao.GhostDao
 import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TrendingDestinationDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
-import com.example.progmob_progetto_melluso.data.dao.TravelPhotoDao
+import com.example.progmob_progetto_melluso.data.dao.TravelMediaDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
 import com.example.progmob_progetto_melluso.data.dao.TravelTransportDao
 import com.example.progmob_progetto_melluso.data.dao.UserProfileDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
+import com.example.progmob_progetto_melluso.data.dao.TravelCityDao
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiVoteEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.StepCheckpointEntity
 import com.example.progmob_progetto_melluso.data.entities.StepDailySummaryEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
-import com.example.progmob_progetto_melluso.data.entities.TravelPhotoEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelMediaEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelTransportEntity
 import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationEntity
 import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationTimeSpanEntity
 import com.example.progmob_progetto_melluso.data.entities.UserProfileEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
 
 @Database(
     entities = [
@@ -37,15 +41,16 @@ import com.example.progmob_progetto_melluso.data.entities.TravelEntity
         StepCheckpointEntity::class,
         TrendingDestinationTimeSpanEntity::class,
         TrendingDestinationEntity::class,
-        TravelPhotoEntity::class,
+        TravelMediaEntity::class,
         TravelTransportEntity::class,
         TravelPoiVisitEntity::class,
         TravelPathPointEntity::class,
         PoiVoteEntity::class,
         PoiEntity::class,
-        GhostEntity::class
+        GhostEntity::class,
+        TravelCityEntity::class
     ],
-    version = 5
+    version = 6
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun travelDao(): TravelDao
@@ -53,11 +58,65 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun stepDailySummaryDao(): StepDailySummaryDao
     abstract fun stepCheckpointDao(): StepCheckpointDao
     abstract fun trendingDestinationDao(): TrendingDestinationDao
-    abstract fun travelPhotoDao(): TravelPhotoDao
+    abstract fun travelMediaDao(): TravelMediaDao
     abstract fun travelTransportDao(): TravelTransportDao
     abstract fun travelPoiVisitDao(): TravelPoiVisitDao
     abstract fun travelPathPointDao(): TravelPathPointDao
     abstract fun poiVoteDao(): PoiVoteDao
     abstract fun poiDao(): PoiDao
     abstract fun ghostDao(): GhostDao
+    abstract fun travelCityDao(): TravelCityDao
+
+    companion object {
+        /**
+         * v5 -> v6: travel journal feature.
+         *
+         * What it changes:
+         * - `travels.description` (user diary note) added as nullable text.
+         * - `travel_photos.media_type` (photo/video) added, defaulting to photo.
+         * - `travel_cities` table for the destinations detected inside a travel
+         *   (used by the journal and by the map region filter).
+         *
+         * Votes are kept only on POIs (the existing `poi_votes` table): travel
+         * and city vote tables introduced in a draft of v6 are dropped here so
+         * the persisted schema always matches the entities list.
+         *
+         * Every pre-existing table/column keeps its identity, so this is a
+         * purely additive migration and existing travels/paths are preserved.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE travels ADD COLUMN description TEXT")
+                // NOTE: the column name must match the entity property exactly
+                // (`mediaType`, no @ColumnInfo): Room validates the migrated
+                // schema against the entity column names, so a snake_case
+                // alias here would crash every existing install with
+                // "Migration didn't properly handle: travel_photos".
+                db.execSQL("ALTER TABLE travel_photos ADD COLUMN mediaType TEXT NOT NULL DEFAULT 'photo'")
+
+                // Drop the vote tables from the draft v6, in case a previous
+                // dev build created them: votes live only on POIs.
+                db.execSQL("DROP TABLE IF EXISTS `travel_votes`")
+                db.execSQL("DROP TABLE IF EXISTS `city_votes`")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `travel_cities` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`travelId` INTEGER NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`lat` REAL NOT NULL, " +
+                        "`lon` REAL NOT NULL, " +
+                        "`arrivedAtUtcMillis` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`travelId`) REFERENCES `travels`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_travel_cities_travelId` ON `travel_cities` (`travelId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_travel_cities_arrivedAtUtcMillis` " +
+                        "ON `travel_cities` (`arrivedAtUtcMillis`)"
+                )
+            }
+        }
+    }
 }
