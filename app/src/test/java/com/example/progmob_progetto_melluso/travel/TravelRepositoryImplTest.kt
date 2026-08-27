@@ -1,7 +1,9 @@
 package com.example.progmob_progetto_melluso.travel
 
+import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
+import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import kotlinx.coroutines.test.runTest
@@ -27,6 +29,17 @@ class TravelRepositoryImplTest {
         tripEndDistanceMeters = 100.0
     )
 
+    /**
+     * A mocked PoiDao whose visit detection finds no POIs (auto-visit is a
+     * no-op). Calls the suspend allPoisOnce(), so it must be created from a
+     * coroutine (all construction sites live inside runTest).
+     */
+    private suspend fun poiDao(): PoiDao = mock<PoiDao>().apply {
+        whenever(allPoisOnce()).thenReturn(emptyList())
+    }
+
+    private fun visitDao(): TravelPoiVisitDao = mock()
+
     private fun activeTravel(id: Long = 1L) = TravelEntity(
         id = id,
         startUtcMillis = 0L,
@@ -49,7 +62,7 @@ class TravelRepositoryImplTest {
         val repository = TravelRepositoryImpl(
             travelDao = travelDao,
             pathPointDao = pathPointDao,
-            config = config,
+            poiDao = poiDao(), travelPoiVisitDao = visitDao(), config = config,
             timeZoneIdProvider = { "Europe/Rome" },
             clock = { 1_000L }
         )
@@ -76,7 +89,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(3L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         assertEquals(3L, repository.startTravel())
         verify(travelDao, never()).insert(any())
@@ -95,7 +108,7 @@ class TravelRepositoryImplTest {
         val repository = TravelRepositoryImpl(
             travelDao = travelDao,
             pathPointDao = pathPointDao,
-            config = config,
+            poiDao = poiDao(), travelPoiVisitDao = visitDao(), config = config,
             clock = { 42L }
         )
 
@@ -112,7 +125,7 @@ class TravelRepositoryImplTest {
         val pathPointDao = mock<TravelPathPointDao>()
         whenever(travelDao.activeTravelOnce()).thenReturn(null)
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         assertFalse(repository.stopTravel())
         verify(travelDao, never()).update(any())
@@ -130,7 +143,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.insert(any())).thenReturn(1L)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         val result = repository.recordLocation(LocationSample(45.0, 7.0, 100L, 5f))
 
@@ -151,7 +164,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // ~5m away and 5s later: below both thresholds, must be skipped.
@@ -173,7 +186,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // ~55 m away (beyond the spatial threshold) but only 500 ms later:
@@ -195,7 +208,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // ~55 m away and 2 s later: both thresholds met, must be recorded.
@@ -216,7 +229,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // ~55 m away (inside the vacation radius, beyond the spatial
@@ -239,7 +252,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         val result = repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 90f))
 
@@ -258,7 +271,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         // Both fixes report ±20 m of error: the effective threshold is the
         // average buffer (20 m), above the 15 m apparent displacement.
@@ -282,7 +295,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // No movement even after the time threshold: must be skipped.
@@ -303,7 +316,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // 44m east, still within the 100m radius.
@@ -332,7 +345,7 @@ class TravelRepositoryImplTest {
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
         whenever(travelDao.insert(any())).thenReturn(2L)
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
         // around 150m from the anchor: the vacation is over, a new travel opens.
@@ -364,7 +377,7 @@ class TravelRepositoryImplTest {
 
         // A fresh repository rebuilds the anchor from storage; a sample is 111m
         // from the anchor leaves the radius and ends the vacation.
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
         val result = repository.recordLocation(LocationSample(0.0, 0.0010, 2_000L))
 
         assertEquals(LocationRecordResult.Recorded(2L, true), result)

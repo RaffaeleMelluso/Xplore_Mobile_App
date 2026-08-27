@@ -44,6 +44,15 @@
     <string name="map_close_info">Close details</string>
     <string name="map_ghost_title">Other traveler</string>
     <string name="map_ghost_snippet">Traveling near you right now.</string>
+    <string name="map_ghost_online_now">Online now</string>
+    <string name="map_ghost_trip">Trip in %1$s</string>
+    <string name="map_ghost_media_label">Photos and videos</string>
+    <string name="map_ghost_visits_label">Places they visited</string>
+    <string name="map_nearby_travelers_title">Nearby travelers</string>
+    <string name="map_nearby_travelers_empty">No travelers around you right now.</string>
+    <string name="map_hide_traveler">Hide %1$s</string>
+    <string name="map_show_traveler">Show %1$s</string>
+    <string name="map_show_all_ghosts_button">Show all travelers</string>
     <string name="map_warning_permission">Location permission is needed to track your route.</string>
     <string name="map_warning_gps">Location services are off. Enable them to see your position.</string>
     <string name="map_warning_grant">Grant</string>

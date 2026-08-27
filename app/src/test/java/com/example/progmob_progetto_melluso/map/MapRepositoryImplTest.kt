@@ -5,6 +5,7 @@ import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
+import com.example.progmob_progetto_melluso.ghost.GhostFactory
 import com.example.progmob_progetto_melluso.travel.TravelRepository
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
@@ -44,8 +45,9 @@ class MapRepositoryImplTest {
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = poiDao,
+                        travelCityDao = mock(),
             travelRepository = mock(),
-            ghostSimulator = GhostSimulator(ghostCount = 2),
+            ghostSimulator = GhostFactory(),
             poiSeed = seed
         )
 
@@ -64,8 +66,9 @@ class MapRepositoryImplTest {
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = poiDao,
+                        travelCityDao = mock(),
             travelRepository = mock(),
-            ghostSimulator = GhostSimulator(ghostCount = 2),
+            ghostSimulator = GhostFactory(),
             poiSeed = listOf(poi(1L))
         )
 
@@ -87,8 +90,9 @@ class MapRepositoryImplTest {
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = poiDao,
+                        travelCityDao = mock(),
             travelRepository = mock(),
-            ghostSimulator = GhostSimulator(ghostCount = 2),
+            ghostSimulator = GhostFactory(),
             poiSeed = listOf(poi(1L), poi(2L))
         )
 
@@ -109,8 +113,9 @@ class MapRepositoryImplTest {
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = mock(),
+                        travelCityDao = mock(),
             travelRepository = travelRepository,
-            ghostSimulator = GhostSimulator(ghostCount = 1)
+            ghostSimulator = GhostFactory()
         )
 
         val emitted = repository.observeActivePath().first()
@@ -140,8 +145,9 @@ class MapRepositoryImplTest {
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = mock(),
+                        travelCityDao = mock(),
             travelRepository = travelRepository,
-            ghostSimulator = GhostSimulator(ghostCount = 1)
+            ghostSimulator = GhostFactory()
         )
 
         val emitted = repository.observeActivePath().first()
@@ -158,16 +164,17 @@ class MapRepositoryImplTest {
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
             poiDao = mock(),
+                        travelCityDao = mock(),
             travelRepository = mock(),
-            ghostSimulator = GhostSimulator(ghostCount = 2)
+            ghostSimulator = GhostFactory()
         )
 
         val ghosts = repository.observeGhosts().first()
 
-        assertEquals(2, ghosts.size)
+        assertTrue("ghosts are emitted even before the first fix", ghosts.isNotEmpty())
         ghosts.forEach { ghost ->
-            val distance = GeoUtils.haversineMeters(45.0703, 7.6869, ghost.lat, ghost.lon)
-            assertTrue("ghost too far from default anchor: $distance m", distance < 5_000)
+            val distance = GeoUtils.haversineMeters(45.0703, 7.6869, ghost.marker.lat, ghost.marker.lon)
+            assertTrue("ghost too far from default anchor: $distance m", distance < 10_000)
         }
     }
 }

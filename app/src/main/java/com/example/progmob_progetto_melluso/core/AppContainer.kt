@@ -8,7 +8,7 @@ import com.example.progmob_progetto_melluso.data.database.AppDatabase
 import com.example.progmob_progetto_melluso.journal.TravelJournalRepository
 import com.example.progmob_progetto_melluso.journal.TravelJournalRepositoryImpl
 import com.example.progmob_progetto_melluso.map.DemoPoiSeed
-import com.example.progmob_progetto_melluso.map.GhostSimulator
+import com.example.progmob_progetto_melluso.ghost.GhostFactory
 import com.example.progmob_progetto_melluso.map.MapRepository
 import com.example.progmob_progetto_melluso.map.MapRepositoryImpl
 import com.example.progmob_progetto_melluso.service.LocationUpdates
@@ -64,7 +64,7 @@ object AppContainer {
             poiDao = db.poiDao(),
             travelCityDao = db.travelCityDao(),
             travelRepository = travelRepository(context),
-            ghostSimulator = GhostSimulator(),
+            ghostSimulator = GhostFactory(),
             poiSeed = DemoPoiSeed.turin + DemoPoiSeed.cerignola
         )
     }
