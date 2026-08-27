@@ -50,7 +50,7 @@ import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
         GhostEntity::class,
         TravelCityEntity::class
     ],
-    version = 6
+    version = 8
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun travelDao(): TravelDao
@@ -84,6 +84,48 @@ abstract class AppDatabase : RoomDatabase() {
          * Every pre-existing table/column keeps its identity, so this is a
          * purely additive migration and existing travels/paths are preserved.
          */
+        /**
+         * v7 -> v8: one visit per (travel, POI).
+         *
+         * What it changes:
+         * - `travel_poi_visits` gets a UNIQUE index on (travelId, poiId): the
+         *   journal detail must show each POI once per trip even when the user
+         *   passed near it several times during the same travel.
+         *
+         * The migration first removes the duplicates that older builds may
+         * have recorded (keeping the EARLIEST row per travel+POI), otherwise
+         * creating the unique index would fail on existing databases.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "DELETE FROM travel_poi_visits WHERE id NOT IN " +
+                        "(SELECT MIN(id) FROM travel_poi_visits GROUP BY travelId, poiId)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_travel_poi_visits_travelId_poiId` " +
+                        "ON `travel_poi_visits` (`travelId`, `poiId`)"
+                )
+            }
+        }
+
+        /**
+         * v6 -> v7: trends scope.
+         *
+         * What it changes:
+         * - `pois.city` (city the POI belongs to) added as nullable text: the
+         *   trends page ranks cities by the votes their POIs receive, so each
+         *   POI carries the city it lives in.
+         *
+         * Purely additive: existing POIs keep their identity, new ones (from
+         * the demo seed) carry their city.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pois ADD COLUMN city TEXT")
+            }
+        }
+
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE travels ADD COLUMN description TEXT")

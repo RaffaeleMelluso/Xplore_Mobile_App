@@ -4,8 +4,10 @@ import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
+import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -354,6 +356,46 @@ class TravelRepositoryImplTest {
         assertEquals(LocationRecordResult.Recorded(2L, true), result)
         verify(travelDao).update(existing.copy(endUtcMillis = 1_000L))
         verify(pathPointDao).insert(argThat { travelId == 2L })
+    }
+
+    /**
+     * Verifica che il rilevamento automatico della visita registri ogni POI UNA
+     * sola volta per viaggio, anche passandoci più volte: la seconda passata
+     * vicino allo stesso POI non crea una visita duplicata nel diario.
+     */
+    @Test
+    fun recordLocation_detectsEachPoiVisitOnlyOnce() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val poi = PoiEntity(
+            id = 7L,
+            lat = 45.0,
+            lon = 7.0,
+            title = "P",
+            description = null,
+            category = null,
+            createdByUserId = null
+        )
+        val poiDao = mock<PoiDao>()
+        whenever(poiDao.allPoisOnce()).thenReturn(listOf(poi))
+
+        val existingVisit = TravelPoiVisitEntity(id = 1L, travelId = 1L, poiId = 7L, visitedAtUtcMillis = 0L)
+        val visitDao = mock<TravelPoiVisitDao>()
+        // First detection: no visit yet -> insert. Second detection: already
+        // recorded -> no insert.
+        whenever(visitDao.visitForTravelAndPoi(any(), any())).thenReturn(null, existingVisit)
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao, visitDao, config)
+
+        // Pass near the POI twice in the same trip (both points are recorded).
+        repository.recordLocation(LocationSample(45.0, 7.0, 0L, 5f))
+        repository.recordLocation(LocationSample(45.0002, 7.0, 2_000L, 5f))
+
+        // The visit is inserted exactly once, not once per pass.
+        verify(visitDao, times(1)).insert(any())
     }
 
     /**

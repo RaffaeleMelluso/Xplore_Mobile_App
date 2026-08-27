@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -89,6 +90,7 @@ import com.example.progmob_progetto_melluso.journal.JournalVisit
 import com.example.progmob_progetto_melluso.ghost.Ghost
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PathSegmenter
+import com.example.progmob_progetto_melluso.ui.common.PoiVoteButtons
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -132,7 +134,12 @@ internal const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 fun MapScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val viewModel: MapViewModel = viewModel(
-        factory = remember(context) { MapViewModelFactory(AppContainer.mapRepository(context)) }
+        factory = remember(context) {
+            MapViewModelFactory(
+                mapRepository = AppContainer.mapRepository(context),
+                poiVoteRepository = AppContainer.poiVoteRepository(context)
+            )
+        }
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -295,17 +302,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
         // Travel filter: a button opens a bottom sheet listing the trips; the
         // chosen one is drawn alone on the map (one trip at a time).
         if (mapReady) {
-            FloatingActionButton(
+            MapActionFab(
                 onClick = { showTravelFilter = true },
+                icon = Icons.AutoMirrored.Filled.List,
+                contentDescription = stringResource(R.string.map_filter_trips_button),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 88.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.List,
-                    contentDescription = stringResource(R.string.map_filter_trips_button)
-                )
-            }
+            )
         }
         if (showTravelFilter) {
             TravelFilterSheet(
@@ -338,16 +342,11 @@ fun MapScreen(modifier: Modifier = Modifier) {
                     .align(Alignment.BottomStart)
                     .padding(16.dp)
             ) {
-                FloatingActionButton(
+                MapActionFab(
                     onClick = { showNearbyTravelers = true },
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Person,
-                        contentDescription = stringResource(R.string.map_nearby_travelers_title)
-                    )
-                }
+                    icon = Icons.Filled.Person,
+                    contentDescription = stringResource(R.string.map_nearby_travelers_title)
+                )
                 if (uiState.hiddenGhostIds.isNotEmpty()) {
                     Badge(
                         modifier = Modifier
@@ -381,14 +380,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
 
-        // Info card for the tapped POI or ghost.
-        val info = selectedPoi?.let { poi ->
-            InfoContent(
-                title = poi.title,
-                subtitle = listOfNotNull(poi.category, poi.description).joinToString(" · ")
-            )
-        }
-        if (info != null) {
+        // Info card for the tapped POI or ghost. The POI card carries the same
+        // up/down votes as the journal and the trends page (shared engine), so
+        // a vote here is reflected everywhere.
+        val poi = selectedPoi
+        if (poi != null) {
+            // The live POI row: after voting, `pois` re-emits with the updated
+            // cached score, so the score shown in the card never goes stale.
+            val livePoi = uiState.pois.firstOrNull { it.id == poi.id } ?: poi
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -398,28 +397,42 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 shadowElevation = 4.dp
             ) {
-                Row(
-                    modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = info.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (info.subtitle.isNotBlank()) {
+                Column {
+                    Row(
+                        modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = info.subtitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = livePoi.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            val subtitle = listOfNotNull(livePoi.category, livePoi.description).joinToString(" · ")
+                            if (subtitle.isNotBlank()) {
+                                Text(
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        IconButton(onClick = { selectedPoi = null; selectedGhost = null }) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.map_close_info)
                             )
                         }
                     }
-                    IconButton(onClick = { selectedPoi = null; selectedGhost = null }) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.map_close_info)
+                    Row(
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PoiVoteButtons(
+                            poiId = livePoi.id,
+                            score = livePoi.votes,
+                            myVote = uiState.poiVotes[livePoi.id] ?: 0,
+                            onVotePoi = { id, voteValue -> viewModel.votePoi(id, voteValue) }
                         )
                     }
                 }
@@ -443,17 +456,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
 
         // Recenter button: only useful once the map is actually usable.
         if (mapReady) {
-            FloatingActionButton(
+            MapActionFab(
                 onClick = { recenterTick++ },
+                icon = Icons.Filled.LocationOn,
+                contentDescription = stringResource(R.string.map_recenter),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.LocationOn,
-                    contentDescription = stringResource(R.string.map_recenter)
-                )
-            }
+            )
         }
     }
 }
@@ -894,8 +904,29 @@ private fun NearbyTravelerRow(
     }
 }
 
-/** Simple holder for the info card fields. */
-private data class InfoContent(val title: String, val subtitle: String)
+/**
+ * Secondary floating action on the map (recenter, trips filter, travelers).
+ *
+ * How it works: all the map actions share the same neutral container with a
+ * primary icon, so they read as one family and never compete with the raised
+ * central Map button of the bottom bar (which keeps the primary fill).
+ */
+@Composable
+private fun MapActionFab(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier
+) {
+    FloatingActionButton(
+        onClick = onClick,
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.primary
+    ) {
+        Icon(imageVector = icon, contentDescription = contentDescription)
+    }
+}
 
 /**
  * Owns the MapLibre style layers and applies state changes with a diff strategy.

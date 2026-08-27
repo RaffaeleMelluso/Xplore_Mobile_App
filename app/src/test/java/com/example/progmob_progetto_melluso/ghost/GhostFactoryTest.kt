@@ -1,8 +1,10 @@
 package com.example.progmob_progetto_melluso.ghost
 
-import com.example.progmob_progetto_melluso.ghost.GhostFactory
+import com.example.progmob_progetto_melluso.data.entities.PoiEntity
+import com.example.progmob_progetto_melluso.map.DemoPoiSeed
 import com.example.progmob_progetto_melluso.travel.TravelConfig
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,6 +100,42 @@ class GhostFactoryTest {
             haversineMeters(lat, lon, ghost.marker.lat, ghost.marker.lon)
         }
         assertTrue("ghost must be near its route", routeMinDistance < 50.0)
+    }
+
+    @Test
+    fun tick_visitsUseRealPoiIdsAndScores() {
+        // The ghost cards must show the REAL community score (and the real POI
+        // id), not a hardcoded value: this is how they stay in sync with the
+        // votes the trends page aggregates.
+        val factory = GhostFactory()
+        val poi = PoiEntity(
+            id = 42L,
+            lat = 45.0,
+            lon = 7.0,
+            title = "Mole Antonelliana",
+            description = null,
+            category = null,
+            createdByUserId = null,
+            city = "Torino",
+            votes = 5
+        )
+        val ghosts = factory.tick(45.09, 7.66, 1_000L, mapOf("Mole Antonelliana" to poi))
+        val visit = ghosts.flatMap { it.visits }.firstOrNull { it.poiTitle == "Mole Antonelliana" }
+        assertNotNull("a ghost must visit the Mole Antonelliana", visit)
+        assertEquals("the visit carries the real POI id", 42L, visit!!.poiId)
+        assertEquals("the visit carries the real community score", 5, visit.score)
+    }
+
+    @Test
+    fun demoGhostVisits_resolveToSeededPoiTitles() {
+        // Every place the ghosts visited must exist as a seeded POI, so each
+        // ghost vote can become a real poi_votes row and trends/ghosts agree.
+        val titles = (DemoPoiSeed.turin + DemoPoiSeed.cerignola).map { it.title }.toSet()
+        val allVisits = DemoGhostVisits.visitsByUser.values.flatten()
+        assertTrue(
+            "every ghost visit must reference a seeded POI",
+            allVisits.all { it.poiTitle in titles }
+        )
     }
 
     @Test

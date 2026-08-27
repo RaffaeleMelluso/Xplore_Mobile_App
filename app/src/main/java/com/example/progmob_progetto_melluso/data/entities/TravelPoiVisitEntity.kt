@@ -24,7 +24,9 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["travelId"]), Index(value = ["poiId"])]
+    // One visit per (travel, POI): re-passing near the same POI during the
+    // same trip must never duplicate the visit row, whatever the call order.
+    indices = [Index(value = ["travelId"]), Index(value = ["poiId"]), Index(value = ["travelId", "poiId"], unique = true)]
 )
 data class TravelPoiVisitEntity(
     // Local database identifier for the visit row.

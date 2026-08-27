@@ -11,10 +11,14 @@ import com.example.progmob_progetto_melluso.map.DemoPoiSeed
 import com.example.progmob_progetto_melluso.ghost.GhostFactory
 import com.example.progmob_progetto_melluso.map.MapRepository
 import com.example.progmob_progetto_melluso.map.MapRepositoryImpl
+import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
+import com.example.progmob_progetto_melluso.poi.PoiVoteRepositoryImpl
 import com.example.progmob_progetto_melluso.service.LocationUpdates
 import com.example.progmob_progetto_melluso.travel.TravelCityDetector
 import com.example.progmob_progetto_melluso.travel.TravelRepository
 import com.example.progmob_progetto_melluso.travel.TravelRepositoryImpl
+import com.example.progmob_progetto_melluso.trend.TrendRepository
+import com.example.progmob_progetto_melluso.trend.TrendRepositoryImpl
 import com.google.firebase.auth.FirebaseAuth
 import java.util.TimeZone
 
@@ -24,12 +28,16 @@ object AppContainer {
 
     fun database(context: Context): AppDatabase {
         return database ?: synchronized(this) {
-            database ?: Room.databaseBuilder(
+            database ?:            Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "xplore.db"
             )
-                .addMigrations(AppDatabase.MIGRATION_5_6)
+                .addMigrations(
+                    AppDatabase.MIGRATION_5_6,
+                    AppDatabase.MIGRATION_6_7,
+                    AppDatabase.MIGRATION_7_8
+                )
                 .build()
                 .also { database = it }
         }
@@ -38,6 +46,33 @@ object AppContainer {
     fun authRepository(context: Context): AuthRepository {
         return FirebaseAuthRepository(
             userProfileDao = database(context).userProfileDao()
+        )
+    }
+
+    /**
+     * Shared vote engine: the single set of vote rules used by the journal,
+     * the map POI card and the trends page.
+     */
+    fun poiVoteRepository(context: Context): PoiVoteRepository {
+        val db = database(context)
+        return PoiVoteRepositoryImpl(
+            poiVoteDao = db.poiVoteDao(),
+            poiDao = db.poiDao(),
+            voterIdProvider = { FirebaseAuth.getInstance().currentUser?.uid ?: "local-user" }
+        )
+    }
+
+    /**
+     * Trends repository wired to the votes table, the shared vote engine and
+     * the demo POI seed (so the page is populated from the first launch).
+     */
+    fun trendRepository(context: Context): TrendRepository {
+        val db = database(context)
+        return TrendRepositoryImpl(
+            poiVoteDao = db.poiVoteDao(),
+            poiDao = db.poiDao(),
+            poiVoteRepository = poiVoteRepository(context),
+            seedPois = DemoPoiSeed.turin + DemoPoiSeed.cerignola
         )
     }
 
@@ -82,12 +117,9 @@ object AppContainer {
             travelPoiVisitDao = db.travelPoiVisitDao(),
             pathPointDao = db.travelPathPointDao(),
             poiDao = db.poiDao(),
-            poiVoteDao = db.poiVoteDao(),
+            poiVoteRepository = poiVoteRepository(context),
             travelRepository = travelRepository(context),
             cityDetector = TravelCityDetector(),
-            voterIdProvider = {
-                FirebaseAuth.getInstance().currentUser?.uid ?: "local-user"
-            },
             mediaFilesDir = context.filesDir
         )
     }

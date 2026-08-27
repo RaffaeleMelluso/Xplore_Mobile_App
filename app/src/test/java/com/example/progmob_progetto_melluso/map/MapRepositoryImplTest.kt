@@ -161,10 +161,13 @@ class MapRepositoryImplTest {
      */
     @Test
     fun observeGhosts_anchorsOnDefaultBeforeFirstFix() = runTest {
+        val poiDao = mock<PoiDao>()
+        // The ghosts now consume the POI flow (real scores in their cards).
+        whenever(poiDao.allPois()).thenReturn(flowOf(emptyList()))
         val repository = MapRepositoryImpl(
             locationFlow = emptyFlow(),
-            poiDao = mock(),
-                        travelCityDao = mock(),
+            poiDao = poiDao,
+            travelCityDao = mock(),
             travelRepository = mock(),
             ghostSimulator = GhostFactory()
         )

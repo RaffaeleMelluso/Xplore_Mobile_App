@@ -16,6 +16,8 @@ import com.example.progmob_progetto_melluso.travel.LocationSample
  * @property userLocation the latest location fix, null until the first one.
  * @property pathPoints the ordered points of the currently displayed travel.
  * @property pois the points of interest to render on the map.
+ * @property poiVotes the signed-in user's vote per POI (poiId -> 1/-1/0),
+ *   so the POI card shows the same up/down state as the journal and trends.
  * @property ghosts the simulated travelers to render on the map (the hidden
  *   ones are already filtered out here).
  * @property nearbyGhosts the full list of travelers around the user BEFORE
@@ -33,6 +35,7 @@ data class MapUiState(
     val userLocation: LocationSample? = null,
     val pathPoints: List<TravelPathPointEntity> = emptyList(),
     val pois: List<PoiEntity> = emptyList(),
+    val poiVotes: Map<Long, Int> = emptyMap(),
     val ghosts: List<Ghost> = emptyList(),
     val nearbyGhosts: List<Ghost> = emptyList(),
     val hiddenGhostIds: Set<String> = emptySet(),

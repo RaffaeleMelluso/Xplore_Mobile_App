@@ -4,16 +4,15 @@ import android.net.Uri
 import com.example.progmob_progetto_melluso.core.GeoUtils
 import java.io.File
 import com.example.progmob_progetto_melluso.data.dao.PoiDao
-import com.example.progmob_progetto_melluso.data.dao.PoiVoteDao
 import com.example.progmob_progetto_melluso.data.dao.TravelCityDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
 import com.example.progmob_progetto_melluso.data.dao.TravelMediaDao
-import com.example.progmob_progetto_melluso.data.entities.PoiVoteEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelMediaEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
+import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelCityDetector
 import com.example.progmob_progetto_melluso.travel.TravelConfig
@@ -35,9 +34,9 @@ import kotlinx.coroutines.flow.map
  * City detection is delegated to the pure [TravelCityDetector] and only
  * inserts destinations that are not already present, so a renamed city is
  * never duplicated. POI visits are detected with the pure [PoiProximity]
- * helper (live during recording + idempotent backfill here). Votes go through
- * [PoiVoteDao] keyed by the signed-in user, and the POI cached score is kept
- * in sync.
+ * helper (live during recording + idempotent backfill here). Votes delegate
+ * to the shared [PoiVoteRepository], so journal, map and trends apply the
+ * same one-vote-per-user rule and the POI cached score stays in sync.
  *
  * @param travelDao DAO for the travels table.
  * @param travelMediaDao DAO for photos/videos.
@@ -45,10 +44,10 @@ import kotlinx.coroutines.flow.map
  * @param travelPoiVisitDao DAO for POI visits.
  * @param pathPointDao DAO for the recorded path.
  * @param poiDao DAO for the POIs (scores and backfill detection).
- * @param poiVoteDao DAO for the up/down votes.
+ * @param poiVoteRepository the shared vote engine (my votes + votePoi), so
+ *   the journal votes with the SAME rules as the map and the trends.
  * @param travelRepository the travel-lifecycle repo (start/stop + active travel).
  * @param cityDetector pure detector that groups path points into destinations.
- * @param voterIdProvider supplies the signed-in user id for the votes.
  * @param config recording/geofence thresholds (POI visit radius).
  * @param mediaFilesDir the app's filesDir, used to delete the private media
  *   copies when a photo/video is removed from the journal.
@@ -62,10 +61,9 @@ class TravelJournalRepositoryImpl(
     private val travelPoiVisitDao: TravelPoiVisitDao,
     private val pathPointDao: TravelPathPointDao,
     private val poiDao: PoiDao,
-    private val poiVoteDao: PoiVoteDao,
+    private val poiVoteRepository: PoiVoteRepository,
     private val travelRepository: TravelRepository,
     private val cityDetector: TravelCityDetector = TravelCityDetector(),
-    private val voterIdProvider: () -> String = { "local-user" },
     private val config: TravelConfig = TravelConfig(),
     private val mediaFilesDir: File? = null,
     private val clock: () -> Long = System::currentTimeMillis
@@ -132,7 +130,7 @@ class TravelJournalRepositoryImpl(
                 // All POIs (for their cached score) and the user's own votes,
                 // so the up/down state of every visit stays reactive.
                 val poisUi = poiDao.allPois()
-                val myVotesUi = poiVoteDao.myVotes(voterIdProvider())
+                val myVotesUi = poiVoteRepository.observeMyVotes()
 
                 // The recorded path, drawn as the small route preview.
                 val pathUi = pathPointDao.pointsForTravel(travelId).map { list ->
@@ -307,43 +305,25 @@ class TravelJournalRepositoryImpl(
 
     override suspend fun deleteTravel(travelId: Long) {
         val travel = travelDao.travelByIdOnce(travelId) ?: return
+        // Collect the visited POIs BEFORE deleting: the votes given on them go
+        // away together with the trip.
+        val visitedPoiIds = travelPoiVisitDao.visitsForTravelOnce(travelId)
+            .map { it.poiId }
+            .distinct()
         if (travel.endUtcMillis == null) {
             // Close the active travel first so the single-active-travel
             // invariant holds and tracking does not append to a deleted row.
             travelRepository.stopTravel()
         }
         travelDao.deleteById(travelId)
+        // A deleted trip takes the votes given on its POIs with it (spec §5:
+        // the journal is the user's own data, votes disappear with the trip).
+        visitedPoiIds.forEach { poiVoteRepository.removeVote(it) }
     }
 
-    override suspend fun votePoi(poiId: Long, voteValue: Int) {
-        require(voteValue == 1 || voteValue == -1) { "voteValue must be +1 or -1" }
-        val voterId = voterIdProvider()
-        val current = poiVoteDao.myVoteOnce(poiId, voterId)
-        when {
-            // Never voted: record the vote.
-            current == null -> poiVoteDao.vote(
-                PoiVoteEntity(
-                    poiId = poiId,
-                    voterUserId = voterId,
-                    voteValue = voteValue,
-                    votedAtUtcMillis = clock()
-                )
-            )
-            // Same vote again: toggle it off.
-            current == voteValue -> poiVoteDao.removeVote(poiId, voterId)
-            // Opposite vote: replace it.
-            else -> poiVoteDao.vote(
-                PoiVoteEntity(
-                    poiId = poiId,
-                    voterUserId = voterId,
-                    voteValue = voteValue,
-                    votedAtUtcMillis = clock()
-                )
-            )
-        }
-        // Keep the cached ranking counter on the POI row in sync.
-        poiDao.updateVotes(poiId, poiVoteDao.voteScoreForPoiOnce(poiId).toInt())
-    }
+    override suspend fun votePoi(poiId: Long, voteValue: Int) =
+        // Shared vote engine: same rules as the map card and the trends page.
+        poiVoteRepository.votePoi(poiId, voteValue)
 
     companion object {
         /** Two detected destinations closer than this are treated as one. */

@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,11 +71,11 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.snapshotter.MapSnapshot
 import org.maplibre.android.snapshotter.MapSnapshotter
+import com.example.progmob_progetto_melluso.ui.common.PoiVoteButtons
 import com.example.progmob_progetto_melluso.ui.map.STYLE_URL
 import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -663,7 +662,7 @@ private fun VisitsSection(
                             )
                             Text(formatDate(visit.visitedAtUtcMillis), style = MaterialTheme.typography.bodySmall)
                         }
-                        VoteButtons(
+                        PoiVoteButtons(
                             poiId = visit.poiId,
                             score = visit.score,
                             myVote = visit.myVote,
@@ -675,47 +674,6 @@ private fun VisitsSection(
                     }
                 }
             }
-        }
-    }
-}
-
-/**
- * Up/down vote control for one POI.
- *
- * How it works: [Icons.Filled.ThumbUp] is used both ways, rotating it 180°
- * for the down button (the extended icon set with ThumbDown is not a
- * dependency). The selected side is tinted with the primary color; the score
- * is the cached community sum shown between the two buttons.
- */
-@Composable
-private fun VoteButtons(
-    poiId: Long,
-    score: Int,
-    myVote: Int,
-    onVotePoi: (Long, Int) -> Unit
-) {
-    val activeTint = MaterialTheme.colorScheme.primary
-    val inactiveTint = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { onVotePoi(poiId, 1) }) {
-            Icon(
-                imageVector = Icons.Filled.ThumbUp,
-                contentDescription = stringResource(R.string.journal_vote_up),
-                tint = if (myVote == 1) activeTint else inactiveTint
-            )
-        }
-        Text(
-            text = score.toString(),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        IconButton(onClick = { onVotePoi(poiId, -1) }) {
-            Icon(
-                imageVector = Icons.Filled.ThumbUp,
-                contentDescription = stringResource(R.string.journal_vote_down),
-                tint = if (myVote == -1) activeTint else inactiveTint,
-                modifier = Modifier.rotate(180f)
-            )
         }
     }
 }

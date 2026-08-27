@@ -34,9 +34,18 @@
     <string name="tab_trends">Trends</string>
     <string name="tab_profile">Profile</string>
     <string name="app_version_label">Version %1$s</string>
-    <string name="placeholder_coming_soon">Coming soon</string>
-    <string name="placeholder_travel">Your travel journal with routes, photos and visited places will live here.</string>
-    <string name="placeholder_trends">Trends and recommendations from other travelers will live here.</string>
+    <!-- Trends screen -->
+    <string name="trends_title">Trends</string>
+    <string name="trends_subtitle">Ranked by community votes</string>
+    <string name="trends_scope_attractions">Attractions</string>
+    <string name="trends_scope_cities">Cities</string>
+    <string name="trends_period_day">Day</string>
+    <string name="trends_period_week">Week</string>
+    <string name="trends_period_month">Month</string>
+    <string name="trends_period_year">Year</string>
+    <string name="trends_votes_count">%1$d votes</string>
+    <string name="trends_score_points">points</string>
+    <string name="trends_empty">No votes in this period yet. Vote on a place from the map or your journal to start the ranking!</string>
     <!-- Map screen -->
     <string name="map_filter_live">Live</string>
     <string name="map_filter_trips_button">Show my trips</string>
