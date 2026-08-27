@@ -4,13 +4,17 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.location.LocationManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,14 +22,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -46,13 +58,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -63,10 +81,12 @@ import kotlinx.coroutines.delay
 import com.google.gson.JsonObject
 import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.core.GeoUtils
-import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
+import com.example.progmob_progetto_melluso.journal.JournalMedia
+import com.example.progmob_progetto_melluso.journal.JournalVisit
+import com.example.progmob_progetto_melluso.ghost.Ghost
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PathSegmenter
 import java.text.SimpleDateFormat
@@ -77,6 +97,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -123,9 +144,12 @@ fun MapScreen(modifier: Modifier = Modifier) {
     // Whether the travel-filter bottom sheet is open (via button).
     var showTravelFilter by remember { mutableStateOf(false) }
 
+    // Whether the nearby-travelers menu (hide/show by name) is open.
+    var showNearbyTravelers by remember { mutableStateOf(false) }
+
     // Selected marker info window: the tapped POI or ghost, shown as a card.
     var selectedPoi by remember { mutableStateOf<PoiEntity?>(null) }
-    var selectedGhost by remember { mutableStateOf<GhostEntity?>(null) }
+    var selectedGhost by remember { mutableStateOf<Ghost?>(null) }
 
     // Location state is re-checked on every ON_RESUME (returning from the
     // system settings) AND polled while the screen is composed: enabling GPS
@@ -180,11 +204,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
                         map.addOnMapClickListener { latLng ->
                             val poi = overlaysRef.value?.poiAt(latLng)
                             val ghost = overlaysRef.value?.ghostAt(latLng)
+                            // The route polyline is clickable too: tapping a
+                            // ghost's path opens the same card as its marker.
+                            val ghostViaPath = overlaysRef.value?.ghostAtPath(latLng)
                             if (poi != null) {
                                 selectedPoi = poi
                                 selectedGhost = null
-                            } else if (ghost != null) {
-                                selectedGhost = ghost
+                            } else if (ghost != null || ghostViaPath != null) {
+                                selectedGhost = ghost ?: ghostViaPath
                                 selectedPoi = null
                             } else {
                                 selectedPoi = null
@@ -293,6 +320,63 @@ fun MapScreen(modifier: Modifier = Modifier) {
             )
         }
 
+        // Close the ghost card when its ghost disappears from the map (e.g. it
+        // was hidden with the hide button): no stale card on screen.
+        LaunchedEffect(uiState.ghosts) {
+            val current = selectedGhost ?: return@LaunchedEffect
+            if (uiState.ghosts.none { it.marker.userId == current.marker.userId }) {
+                selectedGhost = null
+            }
+        }
+
+        // Nearby-travelers menu: the FAB opens a sheet listing the travelers
+        // by name; tapping a name hides/restores that traveler on the map. The
+        // badge reports how many are currently hidden.
+        if (mapReady) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = { showNearbyTravelers = true },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = stringResource(R.string.map_nearby_travelers_title)
+                    )
+                }
+                if (uiState.hiddenGhostIds.isNotEmpty()) {
+                    Badge(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 10.dp, y = (-10).dp),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Text(text = uiState.hiddenGhostIds.size.toString())
+                    }
+                }
+            }
+        }
+        if (showNearbyTravelers) {
+            NearbyTravelersSheet(
+                nearbyGhosts = uiState.nearbyGhosts,
+                hiddenGhostIds = uiState.hiddenGhostIds,
+                onToggleGhost = { userId ->
+                    if (userId in uiState.hiddenGhostIds) {
+                        viewModel.showGhost(userId)
+                    } else {
+                        viewModel.hideGhost(userId)
+                    }
+                },
+                onShowAll = { viewModel.showAllGhosts() },
+                onDismiss = { showNearbyTravelers = false }
+            )
+        }
+
         if (uiState.isLoading && mapReady) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
@@ -302,11 +386,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
             InfoContent(
                 title = poi.title,
                 subtitle = listOfNotNull(poi.category, poi.description).joinToString(" · ")
-            )
-        } ?: selectedGhost?.let { ghost ->
-            InfoContent(
-                title = stringResource(R.string.map_ghost_title),
-                subtitle = stringResource(R.string.map_ghost_snippet)
             )
         }
         if (info != null) {
@@ -347,6 +426,21 @@ fun MapScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        // Specialized card for a tapped ghost: reuses the journal media gallery
+        // and the visited-POI rows (with votes), so a ghost reads exactly like
+        // a real traveler's journey.
+        val ghost = selectedGhost
+        if (ghost != null) {
+            GhostDetailCard(
+                ghost = ghost,
+                onDismiss = { selectedGhost = null },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            )
+        }
+
         // Recenter button: only useful once the map is actually usable.
         if (mapReady) {
             FloatingActionButton(
@@ -363,6 +457,214 @@ fun MapScreen(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * Journal-like card shown when a ghost marker is tapped.
+ *
+ * How it works: it reuses the same data model as the travel journal
+ * ([JournalMedia], [JournalVisit]) so a ghost reads exactly like a real
+ * traveler's journey: name + online/past badge, description, the city of the
+ * trip, a media gallery and the POIs they visited with their votes. The media
+ * are simulated (no real files), so the gallery shows generated placeholder
+ * thumbnails instead of decoded pictures. The card is anchored to the bottom
+ * of the map and dismisses with the X.
+ */
+@Composable
+private fun GhostDetailCard(
+    ghost: Ghost,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The same color the ghost uses on the map, so the card is
+                // instantly associated with its marker.
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(ghostColor(ghost.marker.userId))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = ghost.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                // Online / past badge.
+                val badgeColor = if (ghost.isOnlineNow) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant
+                Surface(
+                    shape = CircleShape,
+                    color = badgeColor.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = if (ghost.isOnlineNow) {
+                            stringResource(R.string.map_ghost_online_now)
+                        } else {
+                            stringResource(R.string.map_ghost_trip, ghost.city)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = badgeColor,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.map_close_info)
+                    )
+                }
+            }
+
+            if (ghost.description.isNotBlank()) {
+                Text(
+                    text = ghost.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // Media gallery (simulated thumbnails).
+            if (ghost.media.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.map_ghost_media_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(ghost.media, key = { it.id }) { item ->
+                        GhostMediaPlaceholder(item)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // Visited POIs with their votes.
+            if (ghost.visits.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.map_ghost_visits_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(8.dp))
+                ghost.visits.forEach { visit ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = visit.poiTitle ?: stringResource(R.string.journal_untitled),
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(ghostDate(visit.visitedAtUtcMillis), style = MaterialTheme.typography.bodySmall)
+                            }
+                            // Read-only: shows the ghost's vote + the POI score.
+                            GhostVote(score = visit.score, myVote = visit.myVote)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A generated placeholder thumbnail for a ghost's simulated photo/video.
+ *
+ * How it works: ghost media have no real file, so instead of decoding an URI
+ * we render a tinted box with the label and (for videos) a play badge — the
+ * same visual language as the journal's media cards.
+ */
+@Composable
+private fun GhostMediaPlaceholder(item: JournalMedia) {
+    val base = when (item.mediaType) {
+        "video" -> Color(0xFF312E81) // indigo
+        else -> Color(0xFF0F766E) // teal
+    }
+    Box(
+        modifier = Modifier
+            .width(140.dp)
+            .height(96.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(base)
+            .padding(8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (item.mediaType == "video") {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(R.string.journal_video_description),
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Text(
+                text = item.caption ?: "",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Up/down votes for a POI a ghost visited, shown read-only.
+ *
+ * How it works: mirrors the journal VoteButtons but is not clickable — it just
+ * shows the cached community score and which way the ghost voted.
+ */
+@Composable
+private fun GhostVote(score: Int, myVote: Int) {
+    val activeTint = MaterialTheme.colorScheme.primary
+    val inactiveTint = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Filled.ThumbUp,
+            contentDescription = stringResource(R.string.journal_vote_up),
+            tint = if (myVote == 1) activeTint else inactiveTint
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = score.toString(),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            imageVector = Icons.Filled.ThumbUp,
+            contentDescription = stringResource(R.string.journal_vote_down),
+            tint = if (myVote == -1) activeTint else inactiveTint,
+            modifier = Modifier.rotate(180f)
+        )
+    }
+}
+
+/** Formats a UTC timestamp as a short date, same style as the journal. */
+private fun ghostDate(utcMillis: Long): String =
+    SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(Date(utcMillis))
 
 /**
  * Bottom sheet listing the trips to show on the map, one at a time.
@@ -460,6 +762,138 @@ private fun TravelSheetRow(
 private fun travelLabel(startUtcMillis: Long): String =
     SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(startUtcMillis))
 
+/**
+ * Bottom sheet listing the nearby travelers so the user can hide/restore them
+ * one by one by name.
+ *
+ * How it works: every row is a traveler with its map color, name and online
+ * badge; tapping the row toggles its visibility on the map (an eye-off icon
+ * means "tap to hide", an eye means "tap to restore"). Hidden travelers are
+ * dimmed and stay in the list, so they can be brought back; a "Show all"
+ * action clears every hide at once. The sheet scales with the number of
+ * travelers (it scrolls instead of flooding the map).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NearbyTravelersSheet(
+    nearbyGhosts: List<Ghost>,
+    hiddenGhostIds: Set<String>,
+    onToggleGhost: (String) -> Unit,
+    onShowAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.map_nearby_travelers_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+            if (nearbyGhosts.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.map_nearby_travelers_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+                )
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(nearbyGhosts, key = { it.marker.userId ?: it.name }) { ghost ->
+                        val userId = ghost.marker.userId
+                        if (userId != null) {
+                            NearbyTravelerRow(
+                                ghost = ghost,
+                                hidden = userId in hiddenGhostIds,
+                                onClick = { onToggleGhost(userId) }
+                            )
+                        }
+                    }
+                }
+            }
+            if (hiddenGhostIds.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onShowAll)
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = stringResource(R.string.map_show_all_ghosts_button),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/** One traveler row of the nearby-travelers sheet: tap to hide/restore. */
+@Composable
+private fun NearbyTravelerRow(
+    ghost: Ghost,
+    hidden: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Same color the ghost uses on the map, so the name is recognizable.
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(ghostColor(ghost.marker.userId))
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = ghost.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (hidden) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+            Text(
+                text = stringResource(
+                    if (ghost.isOnlineNow) R.string.map_ghost_online_now else R.string.map_ghost_trip,
+                    ghost.city
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(
+            painter = painterResource(
+                if (hidden) R.drawable.ic_show_ghosts else R.drawable.ic_hide_ghosts
+            ),
+            contentDescription = stringResource(
+                if (hidden) R.string.map_show_traveler else R.string.map_hide_traveler,
+                ghost.name
+            ),
+            tint = if (hidden) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
 /** Simple holder for the info card fields. */
 private data class InfoContent(val title: String, val subtitle: String)
 
@@ -481,11 +915,13 @@ private class MapOverlays(
     private val pathSource = GeoJsonSource(SOURCE_PATH, FeatureCollection.fromFeatures(emptyArray()))
     private val poiSource = GeoJsonSource(SOURCE_POIS, FeatureCollection.fromFeatures(emptyArray()))
     private val ghostSource = GeoJsonSource(SOURCE_GHOSTS, FeatureCollection.fromFeatures(emptyArray()))
+    private val ghostPathSource = GeoJsonSource(SOURCE_GHOST_PATHS, FeatureCollection.fromFeatures(emptyArray()))
 
     private var initialized = false
     private var lastPathSignature = Int.MIN_VALUE
     private var lastPoiSignature = Int.MIN_VALUE
     private var lastGhostSignature = Int.MIN_VALUE
+    private var lastGhostPathSignature = Int.MIN_VALUE
     private var lastUserLat = Double.NaN
     private var lastUserLon = Double.NaN
 
@@ -493,12 +929,17 @@ private class MapOverlays(
         // Icons are loaded once and reused by every SymbolLayer.
         style.addImage(IMAGE_USER, ResourcesCompat.getDrawable(context.resources, R.drawable.ic_user_location, null)!!)
         style.addImage(IMAGE_POI, ResourcesCompat.getDrawable(context.resources, R.drawable.ic_poi, null)!!)
-        style.addImage(IMAGE_GHOST, ResourcesCompat.getDrawable(context.resources, R.drawable.ic_ghost, null)!!)
+        // One tinted ghost icon per palette color, so each traveler gets a
+        // distinct, stable color on the map.
+        GHOST_PALETTE_ARGB.forEachIndexed { index, color ->
+            style.addImage(GHOST_ICON_PREFIX + index, tintedGhostIcon(context, color))
+        }
 
         style.addSource(userSource)
         style.addSource(pathSource)
         style.addSource(poiSource)
         style.addSource(ghostSource)
+        style.addSource(ghostPathSource)
 
         style.addLayer(
             LineLayer(LAYER_PATH, SOURCE_PATH).withProperties(
@@ -506,6 +947,18 @@ private class MapOverlays(
                 PropertyFactory.lineWidth(PATH_WIDTH_DP),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+            )
+        )
+        // Ghost routes: one polyline per ghost, drawn below the markers so the
+        // markers stay clickable on top. Each line takes its color from the
+        // ghost feature (data-driven), so every traveler has its own color.
+        style.addLayer(
+            LineLayer(LAYER_GHOST_PATHS, SOURCE_GHOST_PATHS).withProperties(
+                PropertyFactory.lineColor(Expression.get("color")),
+                PropertyFactory.lineWidth(GHOST_PATH_WIDTH_DP),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                PropertyFactory.lineDasharray(arrayOf(1f, 2f))
             )
         )
         style.addLayer(
@@ -524,7 +977,7 @@ private class MapOverlays(
         )
         style.addLayer(
             SymbolLayer(LAYER_GHOSTS, SOURCE_GHOSTS).withProperties(
-                PropertyFactory.iconImage(IMAGE_GHOST),
+                PropertyFactory.iconImage(Expression.get("icon")),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true)
             )
@@ -605,21 +1058,60 @@ private class MapOverlays(
         poiSource.setGeoJson(FeatureCollection.fromFeatures(features))
     }
 
-    private fun updateGhosts(ghosts: List<GhostEntity>) {
+    private fun updateGhostPaths(ghosts: List<Ghost>) {
+        val signature = ghosts.hashCode()
+        if (signature == lastGhostPathSignature) return
+        lastGhostPathSignature = signature
+        val features = ghosts.mapNotNull { ghost ->
+            if (ghost.path.size < 2) return@mapNotNull null
+            val line = LineString.fromLngLats(
+                ghost.path.map { Point.fromLngLat(it.second, it.first) }
+            )
+            Feature.fromGeometry(
+                line,
+                JsonObject().apply {
+                    // The polyline is painted with the ghost's own color, and
+                    // carries the user id so tapping the path opens the card.
+                    addProperty("color", ghostColorHex(ghost.marker.userId))
+                    addProperty("userId", ghost.marker.userId)
+                }
+            )
+        }.toTypedArray()
+        ghostPathSource.setGeoJson(FeatureCollection.fromFeatures(features))
+    }
+
+    private fun updateGhosts(ghosts: List<Ghost>) {
         val signature = ghosts.hashCode()
         if (signature == lastGhostSignature) return
         lastGhostSignature = signature
         ghostByUserId.clear()
         val features = ghosts.map { ghost ->
-            ghost.userId?.let { ghostByUserId[it] = ghost }
+            ghost.marker.userId?.let { ghostByUserId[it] = ghost }
             Feature.fromGeometry(
-                Point.fromLngLat(ghost.lon, ghost.lat),
+                Point.fromLngLat(ghost.marker.lon, ghost.marker.lat),
                 JsonObject().apply {
-                    addProperty("userId", ghost.userId)
+                    addProperty("userId", ghost.marker.userId)
+                    // Which tinted icon to use, from the ghost's stable color.
+                    addProperty("icon", GHOST_ICON_PREFIX + ghostColorIndex(ghost.marker.userId))
                 }
             )
         }.toTypedArray()
         ghostSource.setGeoJson(FeatureCollection.fromFeatures(features))
+        updateGhostPaths(ghosts)
+    }
+
+    /** A tinted copy of the ghost icon, one per palette color, for the markers. */
+    private fun tintedGhostIcon(context: Context, color: Int): Bitmap {
+        val drawable = ResourcesCompat.getDrawable(context.resources, R.drawable.ic_ghost, null)!!
+            .mutate()
+        DrawableCompat.setTint(drawable, color)
+        val width = drawable.intrinsicWidth.coerceAtLeast(1)
+        val height = drawable.intrinsicHeight.coerceAtLeast(1)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, width, height)
+        drawable.draw(canvas)
+        return bitmap
     }
 
     /** Returns the POI whose marker is at the given screen point, if any. */
@@ -631,32 +1123,75 @@ private class MapOverlays(
     }
 
     /** Returns the ghost whose marker is at the given screen point, if any. */
-    fun ghostAt(latLng: LatLng): GhostEntity? {
+    fun ghostAt(latLng: LatLng): Ghost? {
         val point = map.projection.toScreenLocation(latLng)
         val features = map.queryRenderedFeatures(point, LAYER_GHOSTS)
         val userId = features.firstOrNull()?.getStringProperty("userId")
         return userId?.let { ghostByUserId[it] }
     }
 
+    /**
+     * Returns the ghost whose route polyline is at the given screen point, so
+     * tapping a ghost's path opens the same card as tapping its marker.
+     */
+    fun ghostAtPath(latLng: LatLng): Ghost? {
+        val point = map.projection.toScreenLocation(latLng)
+        val features = map.queryRenderedFeatures(point, LAYER_GHOST_PATHS)
+        val userId = features.firstOrNull()?.getStringProperty("userId")
+        return userId?.let { ghostByUserId[it] }
+    }
+
     private val poiById = HashMap<Long, PoiEntity>()
-    private val ghostByUserId = HashMap<String, GhostEntity>()
+    private val ghostByUserId = HashMap<String, Ghost>()
 
     companion object {
         const val SOURCE_USER = "source-user"
         const val SOURCE_PATH = "source-path"
         const val SOURCE_POIS = "source-pois"
         const val SOURCE_GHOSTS = "source-ghosts"
+        const val SOURCE_GHOST_PATHS = "source-ghost-paths"
         const val LAYER_USER = "layer-user"
         const val LAYER_PATH = "layer-path"
         const val LAYER_POIS = "layer-pois"
         const val LAYER_GHOSTS = "layer-ghosts"
+        const val LAYER_GHOST_PATHS = "layer-ghost-paths"
         const val IMAGE_USER = "image-user"
         const val IMAGE_POI = "image-poi"
-        const val IMAGE_GHOST = "image-ghost"
+        const val GHOST_ICON_PREFIX = "ghost-icon-"
         const val PATH_COLOR_INT = 0xFF0F766E.toInt()
         const val PATH_WIDTH_DP = 4f
+        const val GHOST_PATH_WIDTH_DP = 3f
     }
 }
+
+/**
+ * Distinct, map-readable colors assigned to the simulated travelers. With many
+ * ghosts (20 in Turin, 5 in Cerignola) a fixed hand-picked palette would
+ * collide, so the colors are generated with a golden-angle hue rotation:
+ * every ghost gets a visually distinct, stable color (the assignment is
+ * derived from the stable user id, see [ghostColorIndex]). Pure presentation:
+ * the domain model carries no colors.
+ */
+private const val GHOST_PALETTE_SIZE = 64
+
+private val GHOST_PALETTE_ARGB: IntArray = IntArray(GHOST_PALETTE_SIZE) { index ->
+    val hue = (index * 137.508f) % 360f
+    android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.72f, 0.92f))
+}
+
+/** Stable palette index for a ghost, derived from its stable user id. */
+private fun ghostColorIndex(userId: String?): Int =
+    ((userId?.hashCode() ?: 0) and Int.MAX_VALUE) % GHOST_PALETTE_ARGB.size
+
+/** ARGB color of a ghost (used for the tinted map icon and the path line). */
+private fun ghostColorArgb(userId: String?): Int = GHOST_PALETTE_ARGB[ghostColorIndex(userId)]
+
+/** Hex color of a ghost, as a "#RRGGBB" string for the GeoJSON features. */
+private fun ghostColorHex(userId: String?): String =
+    String.format(Locale.US, "#%06X", ghostColorArgb(userId) and 0xFFFFFF)
+
+/** Compose color of a ghost (used in the detail card). */
+private fun ghostColor(userId: String?): Color = Color(ghostColorArgb(userId))
 
 private const val MIN_ZOOM = 3.0
 private const val MAX_ZOOM = 19.0

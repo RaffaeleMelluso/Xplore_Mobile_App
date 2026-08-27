@@ -1,10 +1,10 @@
 package com.example.progmob_progetto_melluso.map
 
-import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
+import com.example.progmob_progetto_melluso.ghost.Ghost
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import kotlinx.coroutines.flow.Flow
 
@@ -46,8 +46,8 @@ interface MapRepository {
      */
     fun observeTravelCities(): Flow<List<TravelCityEntity>>
 
-    /** Emits the ghosts that move around the current user position. */
-    fun observeGhosts(): Flow<List<GhostEntity>>
+    /** Emits the simulated travelers with their routes (spec §5.3bis). */
+    fun observeGhosts(): Flow<List<Ghost>>
 
     /**
      * Seeds the POI table with the demo attractions, only when it is empty.

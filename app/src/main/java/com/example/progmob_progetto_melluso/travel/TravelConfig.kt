@@ -26,11 +26,22 @@ package com.example.progmob_progetto_melluso.travel
  * @property poiVisitRadiusMeters Geofencing radius around a POI: when a
  *   recorded path point falls inside it, the visit is registered in the
  *   travel journal (spec §7.3). Configurable, not hardcoded.
+ * @property ghostVisibilityRadiusMeters Maximum straight-line distance from
+ *   the user position within which simulated travelers are considered visible
+ *   (spec §5.3bis / checklist §6: proximity filtering before rendering). This
+ *   keeps the number of ghosts to render bounded regardless of how many users
+ *   exist in the wider world.
+ * @property maxGhostsShown Maximum number of ghost markers the map is allowed
+ *   to render at once (marker cap, checklist §6). When more ghosts are within
+ *   the visibility radius, the closest ones win; the load stays constant even
+ *   with tens of thousands of simulated users.
  */
 data class TravelConfig(
     val minDistanceMeters: Double = 5.0,
     val minElapsedMillis: Long = 10_000L,
     val maxAccuracyMeters: Float = 25f,
     val tripEndDistanceMeters: Double = 50_000.0,
-    val poiVisitRadiusMeters: Double = 150.0
+    val poiVisitRadiusMeters: Double = 150.0,
+    val ghostVisibilityRadiusMeters: Double = 10_000.0,
+    val maxGhostsShown: Int = 60
 )

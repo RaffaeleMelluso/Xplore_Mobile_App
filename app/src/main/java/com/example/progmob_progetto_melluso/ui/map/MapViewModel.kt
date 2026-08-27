@@ -32,6 +32,11 @@ class MapViewModel(
     // Which travel is displayed on the map; null means "the active travel".
     private val selectedTravelId = MutableStateFlow<Long?>(null)
 
+    // The travelers the user hid one by one with the map button. Kept here (not
+    // in the repository) because it is a per-screen presentation preference;
+    // the hidden ids are part of the UI state so the button can restore them.
+    private val hiddenGhostIds = MutableStateFlow<Set<String>>(emptySet())
+
     // The path to draw: the active travel unless a specific one is selected.
     private val pathFlow = selectedTravelId.flatMapLatest { id ->
         if (id == null) {
@@ -68,22 +73,33 @@ class MapViewModel(
         mapRepository.observePois(),
         mapRepository.observeGhosts(),
         travelsAndCitiesFlow
-    ) { location, path, pois, ghosts, (travels, cities) ->
+    ) { location, path, pois, ghosts, travelsAndCities ->
+        val (travels, cities) = travelsAndCities
         MapUiState(
             userLocation = location,
             pathPoints = path,
             pois = pois,
             ghosts = ghosts,
+            nearbyGhosts = ghosts,
             travels = travels,
             travelCities = cities,
             displayedTravelId = selectedTravelId.value,
             isLoading = false
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-        initialValue = MapUiState(isLoading = true)
-    )
+    }
+        // The hidden set is composed afterwards: it only filters the ghost
+        // list (and reports the hidden ids), so the base combine stays small.
+        .combine(hiddenGhostIds) { state, hidden ->
+            state.copy(
+                ghosts = state.ghosts.filterNot { it.marker.userId in hidden },
+                hiddenGhostIds = hidden
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = MapUiState(isLoading = true)
+        )
 
     init {
         // Populate the POI table on first launch (no-op when already seeded).
@@ -98,6 +114,26 @@ class MapViewModel(
      */
     fun selectTravel(travelId: Long?) {
         selectedTravelId.value = travelId
+    }
+
+    /**
+     * Hides the given traveler from the map (menu tap on its name).
+     *
+     * How it works: the id is added to [hiddenGhostIds], which the uiState
+     * combine turns into a filtered ghost list for the map rendering.
+     */
+    fun hideGhost(userId: String) {
+        hiddenGhostIds.value = hiddenGhostIds.value + userId
+    }
+
+    /** Restores the given traveler on the map (menu tap on a hidden name). */
+    fun showGhost(userId: String) {
+        hiddenGhostIds.value = hiddenGhostIds.value - userId
+    }
+
+    /** Restores every hidden traveler on the map. */
+    fun showAllGhosts() {
+        hiddenGhostIds.value = emptySet()
     }
 
     companion object {
