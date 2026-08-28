@@ -3,6 +3,7 @@ package com.example.progmob_progetto_melluso.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.progmob_progetto_melluso.map.MapRepository
+import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,10 +24,13 @@ import kotlinx.coroutines.launch
  * All asynchrony lives in [viewModelScope]; the UI only collects the state.
  *
  * @param mapRepository the repository exposing the map data streams.
+ * @param poiVoteRepository the shared vote engine: the POI card on the map
+ *   votes with the SAME rules as the journal and the trends page.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MapViewModel(
-    private val mapRepository: MapRepository
+    private val mapRepository: MapRepository,
+    private val poiVoteRepository: PoiVoteRepository
 ) : ViewModel() {
 
     // Which travel is displayed on the map; null means "the active travel".
@@ -89,6 +93,13 @@ class MapViewModel(
     }
         // The hidden set is composed afterwards: it only filters the ghost
         // list (and reports the hidden ids), so the base combine stays small.
+        // The user's votes are composed afterwards: they only enrich the POI
+        // card (poiId -> my vote), keeping the base combine small.
+        .combine(poiVoteRepository.observeMyVotes()) { state, myVotes ->
+            state.copy(
+                poiVotes = myVotes.associate { it.poiId to it.voteValue }
+            )
+        }
         .combine(hiddenGhostIds) { state, hidden ->
             state.copy(
                 ghosts = state.ghosts.filterNot { it.marker.userId in hidden },
@@ -102,8 +113,13 @@ class MapViewModel(
         )
 
     init {
-        // Populate the POI table on first launch (no-op when already seeded).
-        viewModelScope.launch { mapRepository.ensurePoiSeed() }
+        viewModelScope.launch {
+            // Populate the POI table on first launch (no-op when already
+            // seeded), THEN the demo votes of the ghost community, so the
+            // ghost cards and the trends page show real, consistent votes.
+            mapRepository.ensurePoiSeed()
+            poiVoteRepository.ensureDemoVotes()
+        }
     }
 
     /**
@@ -134,6 +150,14 @@ class MapViewModel(
     /** Restores every hidden traveler on the map. */
     fun showAllGhosts() {
         hiddenGhostIds.value = emptySet()
+    }
+
+    /**
+     * Votes a POI up/down from its map card, through the shared vote engine
+     * (same rules and score as the journal and the trends page).
+     */
+    fun votePoi(poiId: Long, voteValue: Int) {
+        viewModelScope.launch { poiVoteRepository.votePoi(poiId, voteValue) }
     }
 
     companion object {

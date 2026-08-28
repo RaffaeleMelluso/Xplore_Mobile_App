@@ -22,6 +22,8 @@ data class PoiEntity(
     val category: String?,
     // Optional identifier of the user that created the POI.
     val createdByUserId: String?,
+    // City the POI belongs to, used by the trends ranking (city scope).
+    val city: String? = null,
     // Cached vote counter for quick ranking in the UI.
     val votes: Int = 0
 )

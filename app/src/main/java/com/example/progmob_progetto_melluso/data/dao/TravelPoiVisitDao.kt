@@ -20,7 +20,10 @@ data class PoiVisitView(
 
 @Dao
 interface TravelPoiVisitDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // IGNORE keeps the FIRST visit when the same (travel, POI) is detected
+    // again (also protects against concurrent detections): the unique index
+    // on (travelId, poiId) makes duplicates impossible at the DB level.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(visit: TravelPoiVisitEntity): Long
 
     @Query("SELECT * FROM travel_poi_visits WHERE travelId = :travelId ORDER BY visitedAtUtcMillis DESC")
@@ -35,6 +38,10 @@ interface TravelPoiVisitDao {
      */
     @Query("SELECT * FROM travel_poi_visits WHERE travelId = :travelId AND poiId = :poiId LIMIT 1")
     suspend fun visitForTravelAndPoi(travelId: Long, poiId: Long): TravelPoiVisitEntity?
+
+    /** All visits of a travel, one-shot (used before deleting the travel). */
+    @Query("SELECT * FROM travel_poi_visits WHERE travelId = :travelId")
+    suspend fun visitsForTravelOnce(travelId: Long): List<TravelPoiVisitEntity>
 
     /** The visits of a travel joined with their POI title, for the journal detail. */
     @Query(

@@ -72,9 +72,18 @@ class MapRepositoryImpl(
     override fun observeGhosts(): Flow<List<Ghost>> =
         combine(
             locationFlow.onStart { emit(DEFAULT_ANCHOR) },
-            tickerFlow()
-        ) { location, _ ->
-            ghostSimulator.tick(location.latitude, location.longitude, clock())
+            tickerFlow(),
+            // The POIs feed the ghost cards: each visit shows the REAL POI id
+            // and its live community score, so the ghosts display exactly the
+            // votes the trends page aggregates (spec §5.3bis, synced demo).
+            poiDao.allPois()
+        ) { location, _, pois ->
+            ghostSimulator.tick(
+                location.latitude,
+                location.longitude,
+                clock(),
+                pois.associateBy { it.title }
+            )
         }.distinctUntilChanged()
 
     override suspend fun ensurePoiSeed() {
