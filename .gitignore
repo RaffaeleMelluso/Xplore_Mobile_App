@@ -25,7 +25,7 @@ captures/
 # ===== OS =====
 .DS_Store
 
-# ===== Agent / assistant state (Freebuff, Codebuff, etc.) =====
+# ===== Agent / assistant state =====
 .freebuff/
 .codebuff/
 
