@@ -9,6 +9,8 @@ package com.example.progmob_progetto_melluso.trend
  * @param category the POI category (museum, park, ...), shown as subtitle.
  * @param city the city the POI belongs to, shown as subtitle.
  * @param description optional POI note, shown in the row subtitle.
+ * @param imageUrl optional URL of a real photo of the place (Coil), shown
+ *   as the row thumbnail.
  * @param windowScore sum of the votes received inside the period.
  * @param windowVotes number of votes received inside the period.
  * @param myVote the signed-in user's vote on this POI (1, -1 or 0), so the
@@ -20,6 +22,7 @@ data class PoiTrendItem(
     val category: String?,
     val city: String?,
     val description: String?,
+    val imageUrl: String? = null,
     val windowScore: Long,
     val windowVotes: Long,
     val myVote: Int

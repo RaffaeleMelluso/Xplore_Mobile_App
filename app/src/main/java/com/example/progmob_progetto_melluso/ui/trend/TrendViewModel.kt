@@ -79,10 +79,10 @@ class TrendViewModel(
         selectedScope.value = scope
     }
 
-    /** Votes a POI up/down through the shared vote engine. */
-    fun votePoi(poiId: Long, voteValue: Int) {
-        viewModelScope.launch { trendRepository.votePoi(poiId, voteValue) }
-    }
+    // NOTE: there is intentionally no votePoi here. The trends page is a
+    // read-only ranking: voting from the ranking would let users vote places
+    // they never visited. Votes happen where the visit is real (map POI card,
+    // journal visits) through the shared PoiVoteRepository.
 
     companion object {
         /** Delay before the upstream flows stop after the UI stops collecting. */

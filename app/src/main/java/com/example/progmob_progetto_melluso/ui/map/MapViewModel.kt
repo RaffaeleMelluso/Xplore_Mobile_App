@@ -3,6 +3,8 @@ package com.example.progmob_progetto_melluso.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.progmob_progetto_melluso.map.MapRepository
+import com.example.progmob_progetto_melluso.data.entities.PoiEntity
+import com.example.progmob_progetto_melluso.poi.PoiRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,12 +26,15 @@ import kotlinx.coroutines.launch
  * All asynchrony lives in [viewModelScope]; the UI only collects the state.
  *
  * @param mapRepository the repository exposing the map data streams.
+ * @param poiRepository the POI catalog: user-created POIs are stored here and
+ *   immediately reach every screen (map, ghosts, trends) through Room flows.
  * @param poiVoteRepository the shared vote engine: the POI card on the map
  *   votes with the SAME rules as the journal and the trends page.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MapViewModel(
     private val mapRepository: MapRepository,
+    private val poiRepository: PoiRepository,
     private val poiVoteRepository: PoiVoteRepository
 ) : ViewModel() {
 
@@ -115,8 +120,9 @@ class MapViewModel(
     init {
         viewModelScope.launch {
             // Populate the POI table on first launch (no-op when already
-            // seeded), THEN the demo votes of the ghost community, so the
-            // ghost cards and the trends page show real, consistent votes.
+            // seeded), THEN the demo votes of the ghost community and of the
+            // other demo cities, so the ghost cards and the trends page show
+            // real, consistent votes.
             mapRepository.ensurePoiSeed()
             poiVoteRepository.ensureDemoVotes()
         }
@@ -158,6 +164,15 @@ class MapViewModel(
      */
     fun votePoi(poiId: Long, voteValue: Int) {
         viewModelScope.launch { poiVoteRepository.votePoi(poiId, voteValue) }
+    }
+
+    /**
+     * Stores a user-created POI (spec §3.3, no moderation in the demo). The
+     * reactive POI flow re-emits, so the new marker appears on the map and
+     * the POI joins the trends pool without any extra wiring.
+     */
+    fun addPoi(poi: PoiEntity) {
+        viewModelScope.launch { poiRepository.addPoi(poi) }
     }
 
     companion object {

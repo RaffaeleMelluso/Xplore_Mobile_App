@@ -24,6 +24,9 @@ data class PoiEntity(
     val createdByUserId: String?,
     // City the POI belongs to, used by the trends ranking (city scope).
     val city: String? = null,
+    // Optional URL of a real photo of the place (loaded with Coil), so the
+    // map card and the trends ranking show the actual attraction.
+    val imageUrl: String? = null,
     // Cached vote counter for quick ranking in the UI.
     val votes: Int = 0
 )

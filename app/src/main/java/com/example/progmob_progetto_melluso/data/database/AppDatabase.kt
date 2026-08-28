@@ -50,7 +50,7 @@ import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
         GhostEntity::class,
         TravelCityEntity::class
     ],
-    version = 8
+    version = 9
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun travelDao(): TravelDao
@@ -106,6 +106,22 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_travel_poi_visits_travelId_poiId` " +
                         "ON `travel_poi_visits` (`travelId`, `poiId`)"
                 )
+            }
+        }
+
+        /**
+         * v8 -> v9: photos on the points of interest.
+         *
+         * What it changes:
+         * - `pois.imageUrl` (URL of a real photo of the place, loaded with
+         *   Coil) added as nullable text, so the map card and the trends
+         *   ranking can show the actual attraction.
+         *
+         * Purely additive: existing POIs keep their identity.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pois ADD COLUMN imageUrl TEXT")
             }
         }
 

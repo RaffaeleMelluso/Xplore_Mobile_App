@@ -8,13 +8,20 @@ import com.example.progmob_progetto_melluso.ghost.DemoGhostVisits
 /**
  * Seeds the demo community votes as REAL votes.
  *
- * How it works: the simulated travelers ("ghosts") carry their visits/votes in
- * [DemoGhostVisits]; this seeder turns every visit with a vote into a
- * `poi_votes` row (resolving the POI title to its id), so the trends page
- * aggregates exactly the votes the ghost cards display. Idempotent: when any
- * vote already exists it does nothing, so it is safe to call on every launch.
- * Vote timestamps are anchored to "now" (minus each visit's age), so the
- * day/week/month/year trend windows reflect the sample data spread.
+ * How it works: two demo sources are turned into `poi_votes` rows —
+ * - [DemoGhostVisits.votes]: the votes the simulated travelers show in their
+ *   cards (Turin / Cerignola);
+ * - [DemoCityVotes.votes]: the year-long vote spread across ALL the demo
+ *   cities, so the trend windows (day/week/month/year) rank POIs and cities
+ *   differently.
+ *
+ * Idempotency: the `poi_votes` table has a UNIQUE index on (poiId,
+ * voterUserId) and the insert is REPLACE, so re-running the seed never
+ * duplicates a vote — an already-seeded (poi, demo voter) pair is refreshed
+ * in place. Timestamps are re-anchored to "now" on each seed (each vote is
+ * stored as now - its age), so the demo spread stays meaningful whenever the
+ * app is launched, on fresh installs and on installs that already had votes.
+ * The user's own votes are never touched: their voter id is not a demo id.
  *
  * @param poiVoteDao DAO for the votes table.
  * @param poiDao DAO for the POIs (title -> id resolution and score refresh).
@@ -27,24 +34,39 @@ class DemoVoteSeeder(
 ) {
 
     suspend fun ensureSeeded() {
-        if (poiVoteDao.count() > 0L) return
         val poisByTitle = poiDao.allPoisOnce().associateBy { it.title }
         val now = clock()
         DemoGhostVisits.votes.forEach { vote ->
-            val poi = poisByTitle[vote.poiTitle] ?: return@forEach
-            poiVoteDao.vote(
-                PoiVoteEntity(
-                    poiId = poi.id,
-                    voterUserId = vote.voterUserId,
-                    voteValue = vote.voteValue,
-                    votedAtUtcMillis = now - vote.minutesAgo * MINUTE_MILLIS
-                )
-            )
+            upsert(vote.voterUserId, vote.poiTitle, vote.voteValue, vote.minutesAgo, poisByTitle, now)
         }
-        // Keep the cached ranking counters in sync with the fresh votes.
+        DemoCityVotes.votes.forEach { vote ->
+            upsert(vote.voterUserId, vote.poiTitle, vote.voteValue, vote.minutesAgo, poisByTitle, now)
+        }
+        // Keep the cached ranking counters in sync with the seeded votes, so
+        // every screen (map card, ghost journal, trends) reads the same score.
         poisByTitle.values.forEach { poi ->
             poiDao.updateVotes(poi.id, poiVoteDao.voteScoreForPoiOnce(poi.id).toInt())
         }
+    }
+
+    /** Resolves the POI title to its id and upserts one demo vote row. */
+    private suspend fun upsert(
+        voterUserId: String,
+        poiTitle: String,
+        voteValue: Int,
+        minutesAgo: Long,
+        poisByTitle: Map<String, com.example.progmob_progetto_melluso.data.entities.PoiEntity>,
+        now: Long
+    ) {
+        val poi = poisByTitle[poiTitle] ?: return
+        poiVoteDao.vote(
+            PoiVoteEntity(
+                poiId = poi.id,
+                voterUserId = voterUserId,
+                voteValue = voteValue,
+                votedAtUtcMillis = now - minutesAgo * MINUTE_MILLIS
+            )
+        )
     }
 
     private companion object {

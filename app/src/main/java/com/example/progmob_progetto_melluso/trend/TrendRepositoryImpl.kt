@@ -15,12 +15,13 @@ import kotlinx.coroutines.flow.map
  * [PoiVoteDao] aggregation queries, so they are always in sync with what the
  * community actually voted (real votes, not a cached snapshot). The signed-in
  * user's own vote is attached from the shared [PoiVoteRepository] so the rows
- * show the same up/down state as the journal and the map; voting delegates to
- * that same repository, keeping one single vote rule across the app.
+ * show the same up/down state as the journal and the map. The page is
+ * read-only: voting happens only where the visit is real (map POI card,
+ * journal visits) through that same shared engine.
  *
  * @param poiVoteDao DAO for the votes (aggregation queries).
  * @param poiDao DAO for the POIs (demo seed + cached score refresh).
- * @param poiVoteRepository the shared vote engine (my votes + votePoi).
+ * @param poiVoteRepository the shared vote engine (my votes, read-only here).
  * @param seedPois demo attractions inserted on first launch (same as the map).
  * @param clock provides "now" in UTC millis; injectable for deterministic tests.
  */
@@ -45,6 +46,7 @@ class TrendRepositoryImpl(
                     category = row.poi.category,
                     city = row.poi.city,
                     description = row.poi.description,
+                    imageUrl = row.poi.imageUrl,
                     windowScore = row.windowScore,
                     windowVotes = row.windowVotes,
                     myVote = myVoteByPoi[row.poi.id]?.voteValue ?: 0
@@ -57,17 +59,18 @@ class TrendRepositoryImpl(
             rows.map { row -> CityTrendItem(row.cityName, row.windowScore, row.windowVotes) }
         }
 
-    override suspend fun votePoi(poiId: Long, voteValue: Int) =
-        poiVoteRepository.votePoi(poiId, voteValue)
-
     override suspend fun ensureTrendSeed() {
         // The trends page must work even when the Map tab was never opened:
-        // insert the demo POIs when the table is empty.
-        if (poiDao.count() == 0 && seedPois.isNotEmpty()) {
-            seedPois.forEach { poiDao.insert(it) }
+        // insert the demo POIs that are missing (idempotent per title, the
+        // SAME seed the map uses, so both screens always agree).
+        seedPois.forEach { poi ->
+            if (poiDao.countByTitle(poi.title) == 0) {
+                poiDao.insert(poi)
+            }
         }
         // The community votes come from the SAME data the ghosts show in their
-        // cards (shared seed, idempotent): trends and ghosts always agree.
+        // cards plus the demo city spread (shared seed, idempotent per vote):
+        // trends and ghosts always agree.
         poiVoteRepository.ensureDemoVotes()
     }
 }

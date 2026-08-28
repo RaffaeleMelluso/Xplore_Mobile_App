@@ -87,12 +87,20 @@ class MapRepositoryImpl(
         }.distinctUntilChanged()
 
     override suspend fun ensurePoiSeed() {
-        // Idempotent per title: inserts only the entries that are not present
+        // inserts only the entries that are not present
         // yet, so new demo sets (for example a new city) are added on existing
         // installs without duplicating the POIs already stored.
         poiSeed.forEach { poi ->
             if (poiDao.countByTitle(poi.title) == 0) {
                 poiDao.insert(poi)
+            } else {
+                // Heals demo POIs stored BEFORE the photo column existed (or
+                // with a stale seed URL that no longer resolves): existing
+                // installs get the demo photos too, while images the user
+                // chose from the gallery (content/file URIs) are never
+                // overwritten — the update replaces only blank rows and old
+                // Commons seed links.
+                poi.imageUrl?.let { poiDao.updateImageUrlFromSeed(poi.title, it) }
             }
         }
     }

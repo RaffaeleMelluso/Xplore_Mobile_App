@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.atLeast
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
@@ -32,6 +33,10 @@ class PoiVoteRepositoryImplTest {
         voterIdProvider = { "voter-1" },
         clock = { now }
     )
+
+    private companion object {
+        const val MINUTE_MILLIS = 60_000L
+    }
 
     @Test
     fun neverVoted_recordsTheVote() = runTest {
@@ -100,43 +105,64 @@ class PoiVoteRepositoryImplTest {
     }
 
     /**
-     * Verifica che il seed dei voti demo salvi come voti REALI esattamente i
-     * voti che i ghost mostrano nelle loro card (es. Parco Dora è votato da
-     * ghost-turin-1, -2 e -19) e aggiorni il contatore cache.
+     * Verifica che il seed dei voti demo scriva come voti REALI i dati di
+     * demo: i voti dei ghost (Parco Dora è votato da ghost-turin-1, -2 e -19
+     * con i loro valori ed età) e i voti demo delle altre città (Tour Eiffel
+     * riceve decine di voti dal suo profilo), poi aggiorni il contatore cache
+     * di ogni POI. Così la card di un ghost e i trends mostrano sempre lo
+     * stesso punteggio, e il voto dell'utente si SOMMA ai voti demo (50 -> 51).
      */
     @Test
-    fun ensureDemoVotes_seedsGhostVotesWhenEmpty() = runTest {
-        val poi = PoiEntity(
-            id = 1L,
-            lat = 0.0,
-            lon = 0.0,
-            title = "Parco Dora",
-            description = null,
-            category = null,
-            createdByUserId = null,
-            city = "Torino"
-        )
-        whenever(poiVoteDao.count()).thenReturn(0L)
-        whenever(poiDao.allPoisOnce()).thenReturn(listOf(poi))
+    fun ensureDemoVotes_seedsGhostAndCityVotes() = runTest {
+        val parcoDora = poi(1L, "Parco Dora", "Torino")
+        val tourEiffel = poi(2L, "Tour Eiffel", "Paris")
+        whenever(poiDao.allPoisOnce()).thenReturn(listOf(parcoDora, tourEiffel))
         whenever(poiVoteDao.voteScoreForPoiOnce(any())).thenReturn(1L)
 
         repository.ensureDemoVotes()
 
-        verify(poiVoteDao, times(3)).vote(any<PoiVoteEntity>())
+        // Ghost votes: exactly the rows DemoGhostVisits shows in the cards.
+        verify(poiVoteDao).vote(PoiVoteEntity(poiId = 1L, voterUserId = "ghost-turin-1", voteValue = -1, votedAtUtcMillis = now - 15 * MINUTE_MILLIS))
+        verify(poiVoteDao).vote(PoiVoteEntity(poiId = 1L, voterUserId = "ghost-turin-2", voteValue = -1, votedAtUtcMillis = now - 30 * MINUTE_MILLIS))
+        verify(poiVoteDao).vote(PoiVoteEntity(poiId = 1L, voterUserId = "ghost-turin-19", voteValue = 1, votedAtUtcMillis = now - 12 * MINUTE_MILLIS))
+        // City demo votes: the Tour Eiffel profile, tens of up/down rows.
+        verify(poiVoteDao, atLeast(20)).vote(org.mockito.kotlin.argThat { poiId == 2L })
+        // Cached counters refreshed for both POIs.
         verify(poiDao).updateVotes(1L, 1)
+        verify(poiDao).updateVotes(2L, 1)
     }
 
     /**
-     * Verifica che il seed dei voti demo sia idempotente: con voti già
-     * presenti non inserisce nulla.
+     * Verifica che il seed dei voti demo sia IDEMPOTENTE: rilanciato due
+     * volte, ogni riga demo viene scritta esattamente DUE volte con gli stessi
+     * valori (REPLACE + indice UNIQUE su (poiId, voterUserId) rinfrescano i
+     * voti demo senza mai duplicarli), così il totale non cresce rilanciando
+     * e il voto dell'utente resta una riga a parte.
      */
     @Test
-    fun ensureDemoVotes_skipsWhenVotesAlreadyExist() = runTest {
-        whenever(poiVoteDao.count()).thenReturn(1L)
+    fun ensureDemoVotes_reSeedingIsIdempotent() = runTest {
+        val parcoDora = poi(1L, "Parco Dora", "Torino")
+        whenever(poiDao.allPoisOnce()).thenReturn(listOf(parcoDora))
+        whenever(poiVoteDao.voteScoreForPoiOnce(any())).thenReturn(3L)
 
         repository.ensureDemoVotes()
+        repository.ensureDemoVotes()
 
-        verify(poiVoteDao, never()).vote(any<PoiVoteEntity>())
-        verify(poiDao, never()).updateVotes(any(), any())
+        // Each of the 3 Parco Dora demo rows was inserted exactly TWICE (once
+        // per run): the unique index keeps the table at 3 rows, never 6.
+        verify(poiVoteDao, times(2)).vote(PoiVoteEntity(poiId = 1L, voterUserId = "ghost-turin-1", voteValue = -1, votedAtUtcMillis = now - 15 * MINUTE_MILLIS))
+        verify(poiVoteDao, times(2)).vote(PoiVoteEntity(poiId = 1L, voterUserId = "ghost-turin-2", voteValue = -1, votedAtUtcMillis = now - 30 * MINUTE_MILLIS))
+        verify(poiVoteDao, times(2)).vote(PoiVoteEntity(poiId = 1L, voterUserId = "ghost-turin-19", voteValue = 1, votedAtUtcMillis = now - 12 * MINUTE_MILLIS))
     }
+
+    private fun poi(id: Long, title: String, city: String) = PoiEntity(
+        id = id,
+        lat = 0.0,
+        lon = 0.0,
+        title = title,
+        description = null,
+        category = null,
+        createdByUserId = null,
+        city = city
+    )
 }

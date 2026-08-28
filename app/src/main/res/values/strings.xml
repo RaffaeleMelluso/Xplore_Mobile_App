@@ -32,6 +32,7 @@
     <string name="tab_map">Map</string>
     <string name="tab_travel">Journal</string>
     <string name="tab_trends">Trends</string>
+    <string name="tab_my_pois">My POIs</string>
     <string name="tab_profile">Profile</string>
     <string name="app_version_label">Version %1$s</string>
     <!-- Trends screen -->
@@ -51,6 +52,27 @@
     <string name="map_filter_trips_button">Show my trips</string>
     <string name="map_recenter">Recenter on my location</string>
     <string name="map_close_info">Close details</string>
+    <string name="map_add_poi_button">Add a new point of interest</string>
+    <!-- Add POI dialog -->
+    <string name="add_poi_title">New point of interest</string>
+    <string name="add_poi_field_name">Name</string>
+    <string name="add_poi_field_category">Category (museum, park, ...)</string>
+    <string name="add_poi_field_description">Description</string>
+    <string name="add_poi_field_city">City</string>
+    <string name="add_poi_field_lat">Latitude</string>
+    <string name="add_poi_field_lon">Longitude</string>
+    <string name="add_poi_hint">The POI is added without checks (demo) and immediately appears on the map, in the trends and in the vote pool.</string>
+    <string name="add_poi_confirm">Add</string>
+    <string name="add_poi_cancel">Cancel</string>
+    <string name="add_poi_pick_photo">Choose from gallery</string>
+    <string name="add_poi_remove_photo">Remove photo</string>
+    <string name="map_add_poi_picking">Tap on the map where the point of interest is located</string>
+    <!-- My POIs screen -->
+    <string name="my_pois_title">My points of interest</string>
+    <string name="my_pois_subtitle">Places you added to the community map</string>
+    <string name="my_pois_empty">You haven\'t added any point of interest yet. Use the + button on the map.</string>
+    <string name="my_pois_remove">Remove %1$s</string>
+    <string name="my_pois_votes_count">%1$d votes</string>
     <string name="map_ghost_title">Other traveler</string>
     <string name="map_ghost_snippet">Traveling near you right now.</string>
     <string name="map_ghost_online_now">Online now</string>

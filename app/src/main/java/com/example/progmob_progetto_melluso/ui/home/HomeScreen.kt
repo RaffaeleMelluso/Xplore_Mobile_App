@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.ui.journal.TravelJournalScreen
 import com.example.progmob_progetto_melluso.ui.map.MapScreen
+import com.example.progmob_progetto_melluso.ui.poi.MyPoiScreen
 import com.example.progmob_progetto_melluso.ui.trend.TrendScreen
 
 /** Height reserved for the bottom bar (excluding the system navigation inset). */
@@ -59,8 +61,8 @@ private val MAP_LABEL_SPACING = 4.dp
  * Home scaffold shown after login: a bottom bar with a raised central Map
  * action and the other destinations around it.
  *
- * How it works: each tab hosts its own screen (Map, Journal, Trends, Profile);
- * the bottom bar uses the same background color as the screens (not
+ * How it works: each tab hosts its own screen (Map, Journal, Trends, My POIs,
+ * Profile); the bottom bar uses the same background color as the screens (not
  * Material's default container), so it never clashes with the rest of the UI.
  *
  * @param displayName display name of the signed-in user, if available.
@@ -95,6 +97,7 @@ fun HomeScreen(
                 HomeTab.MAP -> MapScreen()
                 HomeTab.TRAVEL -> TravelJournalScreen()
                 HomeTab.TRENDS -> TrendScreen()
+                HomeTab.MY_POIS -> MyPoiScreen()
                 HomeTab.PROFILE -> ProfilePlaceholder(
                     displayName = displayName,
                     email = email,
@@ -153,13 +156,17 @@ private fun HomeBottomBar(
                     // Center gap: the floating Map button sits over it.
                     Spacer(modifier = Modifier.weight(1f))
                     BarItem(
+                        tab = HomeTab.MY_POIS,
+                        selected = selectedTab == HomeTab.MY_POIS,
+                        onClick = { onTabSelected(HomeTab.MY_POIS) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    BarItem(
                         tab = HomeTab.PROFILE,
                         selected = selectedTab == HomeTab.PROFILE,
                         onClick = { onTabSelected(HomeTab.PROFILE) },
                         modifier = Modifier.weight(1f)
                     )
-                    // Symmetry: balances the two left destinations.
-                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -235,11 +242,12 @@ private fun BarItem(
     }
 }
 
-/** The four destinations of the home bottom navigation bar. */
+/** The five destinations of the home bottom navigation bar. */
 private enum class HomeTab(val labelRes: Int, val icon: ImageVector) {
     MAP(R.string.tab_map, Icons.Filled.LocationOn),
     TRAVEL(R.string.tab_travel, Icons.AutoMirrored.Filled.List),
     TRENDS(R.string.tab_trends, Icons.Filled.Star),
+    MY_POIS(R.string.tab_my_pois, Icons.Filled.Place),
     PROFILE(R.string.tab_profile, Icons.Filled.Person)
 }
 
