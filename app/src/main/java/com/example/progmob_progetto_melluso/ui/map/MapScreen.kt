@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RectF
 import android.location.LocationManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -87,10 +89,13 @@ import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.journal.JournalMedia
+import com.example.progmob_progetto_melluso.journal.JournalTransport
 import com.example.progmob_progetto_melluso.journal.JournalVisit
+import com.example.progmob_progetto_melluso.journal.TransportMode
 import com.example.progmob_progetto_melluso.ghost.Ghost
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PathSegmenter
+import com.example.progmob_progetto_melluso.travel.StaleReason
 import com.example.progmob_progetto_melluso.ui.common.PoiImage
 import com.example.progmob_progetto_melluso.ui.common.PoiVoteButtons
 import com.example.progmob_progetto_melluso.ui.poi.AddPoiDialog
@@ -568,6 +573,36 @@ fun MapScreen(modifier: Modifier = Modifier) {
                     .padding(16.dp)
             )
         }
+
+        // Stale-travel confirmation (spec §7.1): when the active trip looks
+        // finished — the user is far from where it started or it began days
+        // ago — the app ASKS instead of closing it silently in the background.
+        val stale = uiState.staleTravel
+        if (stale != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.keepStaleTravel() },
+                title = { Text(stringResource(R.string.map_stale_travel_title)) },
+                text = {
+                    Text(
+                        if (stale.reason == StaleReason.TOO_OLD) {
+                            stringResource(R.string.map_stale_travel_body_old)
+                        } else {
+                            stringResource(R.string.map_stale_travel_body_far)
+                        }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = viewModel::endStaleTravel) {
+                        Text(stringResource(R.string.map_stale_travel_end))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::keepStaleTravel) {
+                        Text(stringResource(R.string.map_stale_travel_keep))
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -665,6 +700,38 @@ private fun GhostDetailCard(
                 Spacer(Modifier.height(12.dp))
             }
 
+            // Transport segments the traveler reported (examples of the
+            // journal transport flow, same model as a real trip).
+            if (ghost.transports.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.map_ghost_transports_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(8.dp))
+                ghost.transports.forEach { transport ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            GhostTransportIcon(mode = transport.mode)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = ghostTransportLabel(transport.mode, transport.lineName),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
             // Visited POIs with their votes.
             if (ghost.visits.isNotEmpty()) {
                 Text(
@@ -740,6 +807,55 @@ private fun GhostMediaPlaceholder(item: JournalMedia) {
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+/** Label of a transport mode, shared with the journal rows. */
+private val TransportMode.ghostLabelRes: Int
+    get() = when (this) {
+        TransportMode.WALK -> R.string.transport_walk
+        TransportMode.BUS -> R.string.transport_bus
+        TransportMode.TRAM -> R.string.transport_tram
+        TransportMode.METRO -> R.string.transport_metro
+        TransportMode.FERRY -> R.string.transport_ferry
+    }
+
+/** "Bus · Line 4" label of a ghost's reported transport segment. */
+@Composable
+private fun ghostTransportLabel(mode: TransportMode, lineName: String?): String {
+    val modeLabel = stringResource(mode.ghostLabelRes)
+    return if (lineName.isNullOrBlank()) {
+        modeLabel
+    } else {
+        stringResource(R.string.transport_with_line, modeLabel, lineName)
+    }
+}
+
+/** Placeholder icon of a transport mode (same visual as the journal). */
+@Composable
+private fun GhostTransportIcon(mode: TransportMode, modifier: Modifier = Modifier) {
+    val glyph = when (mode) {
+        TransportMode.WALK -> "\uD83D\uDEB6"
+        TransportMode.BUS -> "\uD83D\uDE8C"
+        TransportMode.TRAM -> "\uD83D\uDE8B"
+        TransportMode.METRO -> "\uD83D\uDE87"
+        TransportMode.FERRY -> "\u26F4\uFE0F"
+    }
+    val background = when (mode) {
+        TransportMode.WALK -> Color(0xFF16A34A)
+        TransportMode.BUS -> Color(0xFF2563EB)
+        TransportMode.TRAM -> Color(0xFFDC2626)
+        TransportMode.METRO -> Color(0xFF7C3AED)
+        TransportMode.FERRY -> Color(0xFF0891B2)
+    }
+    Box(
+        modifier = modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(background),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = glyph, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -1040,7 +1156,7 @@ private fun MapActionFab(
  * redraws itself automatically: no marker objects are recreated.
  */
 private class MapOverlays(
-    context: Context,
+    private val context: Context,
     private val map: org.maplibre.android.maps.MapLibreMap,
     private val style: Style
 ) {
@@ -1265,12 +1381,26 @@ private class MapOverlays(
     }
 
     /**
-     * Returns the ghost whose route polyline is at the given screen point, so
-     * tapping a ghost's path opens the same card as tapping its marker.
+     * Returns the ghost whose route polyline is at (or near) the given screen
+     * point, so tapping a ghost's path opens the same card as tapping its
+     * marker.
+     *
+     * Why the tolerance rect: the polylines are thin and dashed, so a query
+     * on the exact tap pixel is hard to hit on a touchscreen. Querying a small
+     * rectangle AROUND the tap (a few tens of dp) makes the path comfortably
+     * tappable while still requiring a deliberate tap near the route.
      */
     fun ghostAtPath(latLng: LatLng): Ghost? {
         val point = map.projection.toScreenLocation(latLng)
-        val features = map.queryRenderedFeatures(point, LAYER_GHOST_PATHS)
+        val density = context.resources.displayMetrics.density
+        val radius = GHOST_PATH_TAP_RADIUS_DP * density
+        val rect = RectF(
+            point.x - radius,
+            point.y - radius,
+            point.x + radius,
+            point.y + radius
+        )
+        val features = map.queryRenderedFeatures(rect, LAYER_GHOST_PATHS)
         val userId = features.firstOrNull()?.getStringProperty("userId")
         return userId?.let { ghostByUserId[it] }
     }
@@ -1294,7 +1424,10 @@ private class MapOverlays(
         const val GHOST_ICON_PREFIX = "ghost-icon-"
         const val PATH_COLOR_INT = 0xFF0F766E.toInt()
         const val PATH_WIDTH_DP = 4f
-        const val GHOST_PATH_WIDTH_DP = 3f
+        const val GHOST_PATH_WIDTH_DP = 4f
+
+        /** Half-side (in dp) of the tap tolerance box around a ghost route. */
+        const val GHOST_PATH_TAP_RADIUS_DP = 30f
     }
 }
 

@@ -5,6 +5,7 @@ import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.travel.LocationSample
+import com.example.progmob_progetto_melluso.travel.StaleReason
 
 /**
  * Immutable UI state for the map screen.
@@ -29,8 +30,20 @@ import com.example.progmob_progetto_melluso.travel.LocationSample
  * @property travelCities the detected destinations grouped by travel id, used
  *   to categorize each trip in the filter (travelId -> city names).
  * @property displayedTravelId the travel whose path is shown; null = active travel.
+ * @property staleTravel the ongoing trip that looks finished (too far from
+ *   its start or too old): the map asks the user whether it is still in
+ *   progress before closing it. Null when nothing is stale.
  * @property isLoading true until the first combined emission arrives.
  */
+/**
+ * A stale ongoing travel the user should confirm the end of (spec §7.1,
+ * confirmed close instead of a silent background close).
+ */
+data class StaleTravel(
+    val travelId: Long,
+    val reason: StaleReason
+)
+
 data class MapUiState(
     val userLocation: LocationSample? = null,
     val pathPoints: List<TravelPathPointEntity> = emptyList(),
@@ -42,5 +55,6 @@ data class MapUiState(
     val travels: List<TravelEntity> = emptyList(),
     val travelCities: Map<Long, List<String>> = emptyMap(),
     val displayedTravelId: Long? = null,
+    val staleTravel: StaleTravel? = null,
     val isLoading: Boolean = true
 )

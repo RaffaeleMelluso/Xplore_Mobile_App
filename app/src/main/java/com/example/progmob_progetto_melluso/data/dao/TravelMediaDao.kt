@@ -8,6 +8,12 @@ import androidx.room.Query
 import com.example.progmob_progetto_melluso.data.entities.TravelMediaEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Table `travel_photos`: the photos/videos attached to the journal.
+ *
+ * It is a child of `travels` (`travelId` FK, CASCADE). Note the DAO only
+ * deletes the DB row, not the media file on disk (kept on purpose).
+ */
 @Dao
 interface TravelMediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

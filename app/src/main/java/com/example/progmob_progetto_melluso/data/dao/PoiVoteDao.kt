@@ -34,6 +34,14 @@ data class CityTrendRow(
     val windowVotes: Long
 )
 
+/**
+ * Table `poi_votes`: a vote cast by a user on a POI.
+ *
+ * It links `pois` (FK `poiId`, CASCADE) to `user_profiles` (column
+ * `voterUserId`). This is where the trends ranking is computed from: the
+ * aggregating queries [poiTrends]/[cityTrends] join votes with POIs and group
+ * them into POI rows / city aggregations.
+ */
 @Dao
 interface PoiVoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

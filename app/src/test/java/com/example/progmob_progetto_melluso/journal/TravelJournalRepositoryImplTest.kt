@@ -32,6 +32,7 @@ class TravelJournalRepositoryImplTest {
         travelMediaDao = mock(),
         travelCityDao = mock(),
         travelPoiVisitDao = travelPoiVisitDao,
+        travelTransportDao = mock(),
         pathPointDao = mock(),
         poiDao = mock(),
         poiVoteRepository = poiVoteRepository,

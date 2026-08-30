@@ -8,6 +8,14 @@ import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationEnt
 import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationTimeSpanEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Tables `trending_destinations` + `trending_destination_time_spans`: cached
+ * snapshots of a ranking computed ahead of time.
+ *
+ * Each rank row is linked to the `pois` it ranks (via `poiId`) and to its
+ * parent snapshot (`timeSpanId`); a snapshot groups a rank position list with
+ * the period (day/week/month/year) it was generated for.
+ */
 @Dao
 interface TrendingDestinationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

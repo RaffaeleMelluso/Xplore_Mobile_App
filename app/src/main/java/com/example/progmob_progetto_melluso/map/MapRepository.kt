@@ -50,6 +50,15 @@ interface MapRepository {
     fun observeGhosts(): Flow<List<Ghost>>
 
     /**
+     * Closes the active travel, if any (used when the user confirms that a
+     * stale vacation is over from the map). The next recorded fix opens a
+     * fresh trip anchored at the new location.
+     *
+     * @return true when a travel was closed.
+     */
+    suspend fun stopTravel(): Boolean
+
+    /**
      * Seeds the POI table with the demo attractions, only when it is empty.
      *
      * How it works: reads the POI count and, if zero, inserts the demo set.

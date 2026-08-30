@@ -6,6 +6,15 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 
+/**
+ * Table `pois`: the points of interest (attractions).
+ *
+ * It is the hub of the schema: each POI is referenced by
+ * - `poi_votes` (FK CASCADE: deleting a POI removes its votes),
+ * - `travel_poi_visits` (the trips that visited it),
+ * - `trending_destinations` (cached rank snapshots),
+ * and it carries the `createdByUserId` pointing to the owning user profile.
+ */
 @Dao
 interface PoiDao {
     @Insert

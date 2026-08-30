@@ -56,7 +56,9 @@ data class TravelJournal(
     val cities: List<JournalCity>,
     val visits: List<JournalVisit>,
     // The recorded path, drawn as a small route preview in the detail.
-    val pathPoints: List<JournalPathPoint> = emptyList()
+    val pathPoints: List<JournalPathPoint> = emptyList(),
+    // The transport segments reported during the trip (spec §3.1).
+    val transports: List<JournalTransport> = emptyList()
 )
 
 /**
@@ -92,6 +94,15 @@ interface TravelJournalRepository {
 
     /** Attaches a photo or video (mediaType: "photo"/"video") to a travel. */
     suspend fun addMedia(travelId: Long, uri: String, mediaType: String)
+
+    /**
+     * Reports a transport segment for a travel (simple flow: mode + optional
+     * line/route number, stamped with the current time).
+     */
+    suspend fun addTransport(travelId: Long, mode: TransportMode, lineName: String?)
+
+    /** Removes a reported transport segment from the journal. */
+    suspend fun removeTransport(id: Long)
 
     /** Removes a photo/video from the journal (the underlying file is kept). */
     suspend fun removeMedia(id: Long)

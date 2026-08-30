@@ -1,5 +1,7 @@
 package com.example.progmob_progetto_melluso.ghost
 
+import com.example.progmob_progetto_melluso.journal.TransportMode
+
 /**
  * Single source of truth for the demo community data: the places every
  * simulated traveler ("ghost") visited and how they voted on them.
@@ -23,6 +25,9 @@ object DemoGhostVisits {
 
     /** One real vote derived from a visit (only the visits with a vote). */
     data class Vote(val voterUserId: String, val poiTitle: String, val voteValue: Int, val minutesAgo: Long)
+
+    /** One transport segment a ghost reported (mode + optional line + when). */
+    data class TransportSpec(val mode: TransportMode, val lineName: String?, val minutesAgo: Long)
 
     /** The visits of every ghost, keyed by its stable user id. */
     val visitsByUser: Map<String, List<Visit>> = mapOf(
@@ -129,4 +134,44 @@ object DemoGhostVisits {
         visits.filter { it.myVote != 0 }
             .map { Vote(userId, it.poiTitle, it.myVote, it.minutesAgo) }
     }
+
+    /**
+     * The transport segments every ghost reported, shown as examples in the
+     * ghost cards (same model as the travel journal, spec §3.1): the demo
+     * travelers use buses, trams, the metro, ferries and walk, with real line
+     * numbers of the cities they move in.
+     */
+    val transportsByUser: Map<String, List<TransportSpec>> = mapOf(
+        "ghost-turin-1" to listOf(
+            TransportSpec(TransportMode.BUS, "4", 70),
+            TransportSpec(TransportMode.WALK, null, 45)
+        ),
+        "ghost-turin-5" to listOf(
+            TransportSpec(TransportMode.TRAM, "15", 100),
+            TransportSpec(TransportMode.WALK, null, 30)
+        ),
+        "ghost-turin-6" to listOf(
+            TransportSpec(TransportMode.METRO, "1", 4_330)
+        ),
+        "ghost-turin-7" to listOf(
+            TransportSpec(TransportMode.TRAM, "13", 75)
+        ),
+        "ghost-turin-11" to listOf(
+            TransportSpec(TransportMode.TRAM, "4", 50)
+        ),
+        "ghost-turin-13" to listOf(
+            TransportSpec(TransportMode.BUS, "11", 40)
+        ),
+        "ghost-turin-17" to listOf(
+            TransportSpec(TransportMode.FERRY, null, 1_430),
+            TransportSpec(TransportMode.WALK, null, 1_425)
+        ),
+        "ghost-cerignola-3" to listOf(
+            TransportSpec(TransportMode.BUS, "1", 20),
+            TransportSpec(TransportMode.WALK, null, 5)
+        ),
+        "ghost-cerignola-5" to listOf(
+            TransportSpec(TransportMode.WALK, null, 15)
+        )
+    )
 }

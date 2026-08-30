@@ -7,6 +7,12 @@ import androidx.room.Query
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Table `travel_path_points`: the raw GPS trace recorded during a trip.
+ *
+ * It is a child of `travels` (`travelId` FK, CASCADE) and the base material
+ * the map path and the distance/segmenter logic are rebuilt from.
+ */
 @Dao
 interface TravelPathPointDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

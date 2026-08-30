@@ -6,6 +6,8 @@ import com.example.progmob_progetto_melluso.map.MapRepository
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.poi.PoiRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
+import com.example.progmob_progetto_melluso.travel.TravelConfig
+import com.example.progmob_progetto_melluso.travel.TravelStaleness
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,12 +32,17 @@ import kotlinx.coroutines.launch
  *   immediately reach every screen (map, ghosts, trends) through Room flows.
  * @param poiVoteRepository the shared vote engine: the POI card on the map
  *   votes with the SAME rules as the journal and the trends page.
+ * @param config travel thresholds, including the staleness ones (how far / how
+ *   old a trip can be before the user is asked whether it is still ongoing).
+ * @param clock provides "now" in UTC millis; injectable for deterministic tests.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MapViewModel(
     private val mapRepository: MapRepository,
     private val poiRepository: PoiRepository,
-    private val poiVoteRepository: PoiVoteRepository
+    private val poiVoteRepository: PoiVoteRepository,
+    private val config: TravelConfig = TravelConfig(),
+    private val clock: () -> Long = System::currentTimeMillis
 ) : ViewModel() {
 
     // Which travel is displayed on the map; null means "the active travel".
@@ -54,6 +61,10 @@ class MapViewModel(
             mapRepository.observePathFor(id)
         }
     }
+
+    // The stale trip the user already answered ("keep it"): the prompt must
+    // not reappear on every emission while the same trip stays active.
+    private val dismissedStaleTravelId = MutableStateFlow<Long?>(null)
 
     // Journal travels + their detected cities, combined so the filter can
     // label each trip with the places it visited (its category).
@@ -84,6 +95,27 @@ class MapViewModel(
         travelsAndCitiesFlow
     ) { location, path, pois, ghosts, travelsAndCities ->
         val (travels, cities) = travelsAndCities
+        val activeTravel = travels.firstOrNull { it.endUtcMillis == null }
+        // Staleness is only evaluated for the LIVE trip (not while a past
+        // travel is selected on the map): far from the anchor or too old ->
+        // the user is asked whether the vacation is still ongoing.
+        val stale = if (selectedTravelId.value == null) {
+            activeTravel?.let { travel ->
+                val anchor = path.firstOrNull()
+                TravelStaleness.evaluate(
+                    startUtcMillis = travel.startUtcMillis,
+                    anchorLat = anchor?.latitude,
+                    anchorLon = anchor?.longitude,
+                    currentLat = location?.latitude,
+                    currentLon = location?.longitude,
+                    maxDurationMillis = config.tripEndDurationMillis,
+                    maxDistanceMeters = config.tripEndDistanceMeters,
+                    nowMillis = clock()
+                )?.let { reason -> StaleTravel(travel.id, reason) }
+            }
+        } else {
+            null
+        }
         MapUiState(
             userLocation = location,
             pathPoints = path,
@@ -93,6 +125,7 @@ class MapViewModel(
             travels = travels,
             travelCities = cities,
             displayedTravelId = selectedTravelId.value,
+            staleTravel = stale,
             isLoading = false
         )
     }
@@ -109,6 +142,11 @@ class MapViewModel(
             state.copy(
                 ghosts = state.ghosts.filterNot { it.marker.userId in hidden },
                 hiddenGhostIds = hidden
+            )
+        }
+        .combine(dismissedStaleTravelId) { state, dismissed ->
+            state.copy(
+                staleTravel = state.staleTravel?.takeIf { it.travelId != dismissed }
             )
         }
         .stateIn(
@@ -173,6 +211,24 @@ class MapViewModel(
      */
     fun addPoi(poi: PoiEntity) {
         viewModelScope.launch { poiRepository.addPoi(poi) }
+    }
+
+    /**
+     * The user says the stale trip is still ongoing: stop asking about it
+     * while this travel stays active.
+     */
+    fun keepStaleTravel() {
+        val id = uiState.value.staleTravel?.travelId ?: return
+        dismissedStaleTravelId.value = id
+    }
+
+    /**
+     * The user confirms the vacation is over: close the active travel. The
+     * next recorded fix opens a fresh trip anchored at the new location.
+     */
+    fun endStaleTravel() {
+        dismissedStaleTravelId.value = null
+        viewModelScope.launch { mapRepository.stopTravel() }
     }
 
     companion object {

@@ -133,6 +133,7 @@ object AppContainer {
             travelMediaDao = db.travelMediaDao(),
             travelCityDao = db.travelCityDao(),
             travelPoiVisitDao = db.travelPoiVisitDao(),
+            travelTransportDao = db.travelTransportDao(),
             pathPointDao = db.travelPathPointDao(),
             poiDao = db.poiDao(),
             poiVoteRepository = poiVoteRepository(context),

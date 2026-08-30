@@ -7,6 +7,13 @@ import androidx.room.Query
 import com.example.progmob_progetto_melluso.data.entities.StepDailySummaryEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Table `step_daily_summaries`: the per-day pedometer totals of a trip.
+ *
+ * It is a child of `travels` (`travelId` FK, CASCADE): one travel can gather
+ * several daily summaries (steps + distance per local date), aggregated by
+ * [totalStepsForTravel]/[totalDistanceForTravel] for the journal.
+ */
 @Dao
 interface StepDailySummaryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

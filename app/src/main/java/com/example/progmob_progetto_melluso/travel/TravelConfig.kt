@@ -20,9 +20,14 @@ package com.example.progmob_progetto_melluso.travel
  *   a travel is always accepted, otherwise no anchor could ever be created
  *   with a cold GPS.
  * @property tripEndDistanceMeters Straight-line distance from the trip's anchor
- *   point (its first recorded location) at which the trip is closed
- *   automatically: leaving the vacation area by this distance means the
- *   vacation is over. Default 50 km.
+ *   point (its first recorded location) beyond which the trip is considered
+ *   finished: leaving the vacation area by this distance means the vacation
+ *   is over. The user is ASKED before the trip is closed (it is not closed
+ *   silently in the background). Default 50 km.
+ * @property tripEndDurationMillis Maximum age of the active trip (from its
+ *   start) before the user is asked whether the vacation is still ongoing.
+ *   Default 3 days: a trip started days ago that is still "active" is most
+ *   likely a leftover of a past vacation.
  * @property poiVisitRadiusMeters Geofencing radius around a POI: when a
  *   recorded path point falls inside it, the visit is registered in the
  *   travel journal (spec §7.3). Configurable, not hardcoded.
@@ -41,6 +46,7 @@ data class TravelConfig(
     val minElapsedMillis: Long = 10_000L,
     val maxAccuracyMeters: Float = 25f,
     val tripEndDistanceMeters: Double = 50_000.0,
+    val tripEndDurationMillis: Long = 2L * 24L * 60L * 60L * 1_000L,
     val poiVisitRadiusMeters: Double = 150.0,
     val ghostVisibilityRadiusMeters: Double = 10_000.0,
     val maxGhostsShown: Int = 60

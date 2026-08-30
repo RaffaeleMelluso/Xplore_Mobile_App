@@ -21,9 +21,10 @@ import kotlinx.coroutines.sync.withLock
  * recreation. A [Mutex] serializes concurrent location updates.
  *
  * Vacation-end detection: the trip's anchor is its first recorded location.
- * When a new sample is further than [TravelConfig.tripEndDistanceMeters] from
- * that anchor, the vacation is considered over, the active travel is closed
- * and a new one opens anchored at the new location.
+ * The trip is NOT closed silently here anymore: when the user reopens the app
+ * somewhere else (or days later), [TravelStaleness] detects the stale trip in
+ * the UI layer and the user is ASKED whether the vacation is still ongoing
+ * before the trip is closed (spec §7.1, confirmed close instead of silent).
  *
  * @param travelDao DAO for the travels table.
  * @param pathPointDao DAO for the recorded path points.
@@ -85,25 +86,12 @@ class TravelRepositoryImpl(
             val activeTravel = activeTravelOrCreate(sample.recordedAtUtcMillis)
             if (trackedTravelId != activeTravel.id) loadState(activeTravel.id)
 
-            // 2. Vacation-end detection: straight-line distance from the anchor.
-            val distanceFromAnchor = anchorPoint?.let {
-                GeoUtils.haversineMeters(it.latitude, it.longitude, sample.latitude, sample.longitude)
-            } ?: 0.0
-
-            if (anchorPoint != null && distanceFromAnchor >= config.tripEndDistanceMeters) {
-                // The user left the vacation area: close the current trip and
-                // open the next one anchored at this location.
-                travelDao.update(activeTravel.copy(endUtcMillis = sample.recordedAtUtcMillis))
-                val newTravel = createActiveTravel(sample.recordedAtUtcMillis)
-                val point = newPathPoint(newTravel.id, sample)
-                pathPointDao.insert(point)
-                detectVisitsNear(newTravel.id, sample)
-
-                trackedTravelId = newTravel.id
-                anchorPoint = point
-                lastPoint = point
-                return@withLock LocationRecordResult.Recorded(newTravel.id, true)
-            }
+            // NOTE: no silent vacation-end close here anymore. The staleness
+            // signal (distance from the anchor OR trip age) is evaluated in the
+            // UI layer ([TravelStaleness]) and the user is ASKED before the
+            // trip is closed: the app must not end a vacation behind the user's
+            // back while it runs in the background. Points are still recorded
+            // normally; the path segmenter keeps the map drawing sane.
 
             // 3. Accuracy gate relative to the previous point: a fix whose
             //    reported error exceeds maxAccuracyMeters is mostly GPS noise

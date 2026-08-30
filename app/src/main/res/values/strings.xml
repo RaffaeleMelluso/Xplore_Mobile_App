@@ -130,4 +130,37 @@
     <string name="journal_delete_cancel">Cancel</string>
     <string name="journal_no_video_player">No video player found</string>
     <string name="journal_open_video_with">Open video with</string>
+
+    <!-- Transport reporting (spec §3.1, simple flow) -->
+    <string name="journal_transports_label">Transport</string>
+    <string name="journal_no_transports">No transport reported yet.</string>
+    <string name="journal_add_transport">Add transport</string>
+    <string name="journal_add_transport_confirm">Add</string>
+    <string name="journal_remove_transport">Remove transport</string>
+    <string name="transport_mode_label">How did you move?</string>
+    <string name="transport_line_label">Line number (optional)</string>
+    <string name="transport_with_line">%1$s · Line %2$s</string>
+    <string name="transport_walk">On foot</string>
+    <string name="transport_bus">Bus</string>
+    <string name="transport_tram">Tram</string>
+    <string name="transport_metro">Metro</string>
+    <string name="transport_ferry">Ferry</string>
+
+    <!-- Ghost cards: transports examples -->
+    <string name="map_ghost_transports_label">Transport they used</string>
+
+    <!-- Stale-travel confirmation (spec §7.1, confirmed vacation end) -->
+    <string name="map_stale_travel_title">Is your trip still in progress?</string>
+    <string name="map_stale_travel_body_old">Your trip started more than 3 days ago. If the vacation is over, end the trip so a new one can start.</string>
+    <string name="map_stale_travel_body_far">You are far from where this trip started. If you moved to a new place, end the trip so a new one can start here.</string>
+    <string name="map_stale_travel_keep">Keep it</string>
+    <string name="map_stale_travel_end">End trip</string>
+
+    <!-- Trends detail screens -->
+    <string name="trends_detail_score_period">Score (%1$s)</string>
+    <string name="trends_detail_votes_period">Votes (%1$s)</string>
+    <string name="trends_detail_score_all_time">Score (all time)</string>
+    <string name="trends_detail_votes_all_time">Votes (all time)</string>
+    <string name="trends_detail_my_vote_up">You voted up this place</string>
+    <string name="trends_detail_my_vote_down">You voted down this place</string>
 </resources>

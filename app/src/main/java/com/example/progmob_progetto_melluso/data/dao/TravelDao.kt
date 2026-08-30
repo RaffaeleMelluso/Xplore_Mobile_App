@@ -7,6 +7,14 @@ import androidx.room.Update
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Table `travels`: the trips recorded by the user (the journal).
+ *
+ * It is the parent of the whole travel cluster. Deleting a travel cascades to
+ * everything that belongs to it: `travel_cities`, `travel_path_points`,
+ * `travel_photos`, `travel_poi_visits`, `travel_transports` and the `step_*`
+ * row, all linked by `travelId` with ON DELETE CASCADE.
+ */
 @Dao
 interface TravelDao {
     @Insert
