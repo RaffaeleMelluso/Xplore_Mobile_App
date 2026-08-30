@@ -62,7 +62,7 @@ class PoiRepositoryImplTest {
     fun addPoi_storesThePoiWithZeroedScoreAndOwner() = runTest {
         // The user accidentally submitted a POI with a non-zero counter: the
         // repository zeroes it, because a fresh POI has no votes yet.
-        val userPoi = PoiEntity(lat = 48.85, lon = 2.29, title = "User POI", description = "d", category = "Museum", createdByUserId = null, city = "Paris", imageUrl = "https://example.com/x.jpg", votes = 42)
+        val userPoi = PoiEntity(lat = 48.85, lon = 2.29, title = "User POI", description = "d", category = "Museum", createdByUserId = null, city = "Paris", imageUri = "file:///data/user/poi.jpg", votes = 42)
         whenever(poiDao.insert(any<PoiEntity>())).thenReturn(9L)
 
         val id = repository.addPoi(userPoi)

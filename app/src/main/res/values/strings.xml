@@ -61,7 +61,7 @@
     <string name="add_poi_field_city">City</string>
     <string name="add_poi_field_lat">Latitude</string>
     <string name="add_poi_field_lon">Longitude</string>
-    <string name="add_poi_hint">The POI is added without checks (demo) and immediately appears on the map, in the trends and in the vote pool.</string>
+    <string name="add_poi_hint">Name, city and photo are required. The POI is added without further checks (demo) and immediately appears on the map, in the trends and in the vote pool.</string>
     <string name="add_poi_confirm">Add</string>
     <string name="add_poi_cancel">Cancel</string>
     <string name="add_poi_pick_photo">Choose from gallery</string>

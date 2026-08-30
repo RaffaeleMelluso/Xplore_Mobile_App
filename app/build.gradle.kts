@@ -87,7 +87,4 @@ dependencies {
 
     // MapLibre Native: free vector tiles (OpenFreeMap), no API key required
     implementation(libs.maplibre.android)
-
-    // Coil: async image loading for the real photos of the points of interest
-    implementation(libs.coil.compose)
 }

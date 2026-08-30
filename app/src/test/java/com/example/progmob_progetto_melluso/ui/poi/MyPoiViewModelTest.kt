@@ -44,7 +44,7 @@ class MyPoiViewModelTest {
         category = "Museum",
         createdByUserId = "user-1",
         city = "Torino",
-        imageUrl = "https://example.com/p.jpg",
+        imageUri = "file:///data/user/p.jpg",
         votes = 3
     )
 

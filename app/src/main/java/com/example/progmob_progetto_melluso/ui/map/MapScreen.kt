@@ -488,18 +488,19 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 shadowElevation = 4.dp
             ) {
                 Column {
-                    // Real photo of the place, shown when the POI has one
-                    // (themed placeholder behind while loading/failing).
-                    livePoi.imageUrl?.let { url ->
-                        PoiImage(
-                            imageUrl = url,
-                            contentDescription = livePoi.title,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(140.dp)
-                                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                        )
-                    }
+                    // Real photo of the place: the bundled drawable for the
+                    // demo POIs, the user's gallery photo for the ones they
+                    // added (themed placeholder behind while decoding or when
+                    // the POI has no photo).
+                    PoiImage(
+                        imageResName = livePoi.imageResName,
+                        imageUri = livePoi.imageUri,
+                        contentDescription = livePoi.title,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    )
                     Row(
                         modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically

@@ -94,13 +94,11 @@ class MapRepositoryImpl(
             if (poiDao.countByTitle(poi.title) == 0) {
                 poiDao.insert(poi)
             } else {
-                // Heals demo POIs stored BEFORE the photo column existed (or
-                // with a stale seed URL that no longer resolves): existing
-                // installs get the demo photos too, while images the user
-                // chose from the gallery (content/file URIs) are never
-                // overwritten — the update replaces only blank rows and old
-                // Commons seed links.
-                poi.imageUrl?.let { poiDao.updateImageUrlFromSeed(poi.title, it) }
+                // Heals demo POIs stored BEFORE the static-photo columns
+                // existed: existing installs get the bundled demo photo too,
+                // while the photo the user attached to their own POI (stored
+                // in `imageUri`, never a drawable name) is not touched.
+                poi.imageResName?.let { poiDao.updateSeedImageResName(poi.title, it) }
             }
         }
     }

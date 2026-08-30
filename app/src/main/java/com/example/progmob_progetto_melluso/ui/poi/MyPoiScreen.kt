@@ -123,7 +123,8 @@ private fun MyPoiRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             PoiImage(
-                imageUrl = poi.imageUrl,
+                imageResName = poi.imageResName,
+                imageUri = poi.imageUri,
                 contentDescription = poi.title,
                 modifier = Modifier
                     .size(48.dp)

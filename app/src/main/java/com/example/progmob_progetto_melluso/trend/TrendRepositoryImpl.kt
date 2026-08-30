@@ -46,7 +46,8 @@ class TrendRepositoryImpl(
                     category = row.poi.category,
                     city = row.poi.city,
                     description = row.poi.description,
-                    imageUrl = row.poi.imageUrl,
+                    imageResName = row.poi.imageResName,
+                    imageUri = row.poi.imageUri,
                     windowScore = row.windowScore,
                     windowVotes = row.windowVotes,
                     myVote = myVoteByPoi[row.poi.id]?.voteValue ?: 0

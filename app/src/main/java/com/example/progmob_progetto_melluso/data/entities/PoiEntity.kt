@@ -24,9 +24,14 @@ data class PoiEntity(
     val createdByUserId: String?,
     // City the POI belongs to, used by the trends ranking (city scope).
     val city: String? = null,
-    // Optional URL of a real photo of the place (loaded with Coil), so the
-    // map card and the trends ranking show the actual attraction.
-    val imageUrl: String? = null,
+    // Name of the bundled drawable (res/drawable) holding the REAL photo of
+    // the place for the demo POIs (e.g. "poi_mole_antonelliana"). Null for
+    // user-created POIs, which instead store their own photo in [imageUri].
+    val imageResName: String? = null,
+    // Local URI (file://) of the photo the user picked from the gallery when
+    // adding a POI, copied into the app's private storage so it survives
+    // restarts. Null for the demo POIs, which use [imageResName].
+    val imageUri: String? = null,
     // Cached vote counter for quick ranking in the UI.
     val votes: Int = 0
 )

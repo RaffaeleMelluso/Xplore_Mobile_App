@@ -211,7 +211,8 @@ private fun AttractionTrendRow(
             // rows between POIs with and without a picture.
             Spacer(Modifier.width(8.dp))
             PoiImage(
-                imageUrl = item.imageUrl,
+                imageResName = item.imageResName,
+                imageUri = item.imageUri,
                 contentDescription = item.title,
                 modifier = Modifier
                     .size(44.dp)

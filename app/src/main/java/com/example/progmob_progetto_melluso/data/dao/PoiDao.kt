@@ -41,16 +41,14 @@ interface PoiDao {
     suspend fun delete(id: Long)
 
     /**
-     * Heals demo POIs stored before the photo column existed (or with a stale
-     * seed URL): replaces the imageUrl only when the row has none or still
-     * points at a Commons seed link. User-chosen photos (content:// and
-     * file:// URIs) are never touched, so the seed refresh cannot overwrite
-     * what the user picked from the gallery.
+     * Heals demo POIs stored before the static-photo columns existed: fills
+     * the bundled drawable name only when the row has none. User-created POIs
+     * are never touched here: their photo lives in `imageUri` (a file URI,
+     * not a drawable name), and the WHERE clause matches only blank rows.
      */
     @Query(
-        "UPDATE pois SET imageUrl = :imageUrl " +
-            "WHERE title = :title AND (imageUrl IS NULL OR imageUrl = '' " +
-            "OR imageUrl LIKE 'https://commons.wikimedia.org/%')"
+        "UPDATE pois SET imageResName = :imageResName " +
+            "WHERE title = :title AND (imageResName IS NULL OR imageResName = '')"
     )
-    suspend fun updateImageUrlFromSeed(title: String, imageUrl: String)
+    suspend fun updateSeedImageResName(title: String, imageResName: String)
 }
