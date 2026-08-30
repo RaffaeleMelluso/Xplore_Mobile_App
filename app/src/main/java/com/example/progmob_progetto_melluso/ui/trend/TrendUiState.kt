@@ -19,6 +19,8 @@ enum class TrendScope { ATTRACTIONS, CITIES }
  * @property scope the selected ranking scope (attractions or cities).
  * @property poiTrends the attractions ranking for [period].
  * @property cityTrends the cities ranking for [period].
+ * @property selectedPoiId the attraction opened in the detail screen (or null).
+ * @property selectedCityName the city opened in the detail screen (or null).
  * @property isLoading true until the first emission arrives.
  */
 data class TrendUiState(
@@ -26,5 +28,7 @@ data class TrendUiState(
     val scope: TrendScope = TrendScope.ATTRACTIONS,
     val poiTrends: List<PoiTrendItem> = emptyList(),
     val cityTrends: List<CityTrendItem> = emptyList(),
+    val selectedPoiId: Long? = null,
+    val selectedCityName: String? = null,
     val isLoading: Boolean = true
 )

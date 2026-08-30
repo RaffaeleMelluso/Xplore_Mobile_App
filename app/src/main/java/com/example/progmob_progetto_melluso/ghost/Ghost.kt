@@ -2,6 +2,7 @@ package com.example.progmob_progetto_melluso.ghost
 
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.journal.JournalMedia
+import com.example.progmob_progetto_melluso.journal.JournalTransport
 import com.example.progmob_progetto_melluso.journal.JournalVisit
 
 /**
@@ -33,5 +34,6 @@ data class Ghost(
     val city: String,
     /** Journal-like data shown in the ghost detail card. */
     val media: List<JournalMedia> = emptyList(),
-    val visits: List<JournalVisit> = emptyList()
+    val visits: List<JournalVisit> = emptyList(),
+    val transports: List<JournalTransport> = emptyList()
 )

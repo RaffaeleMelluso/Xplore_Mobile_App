@@ -40,3 +40,12 @@ data class CityTrendItem(
     val windowScore: Long,
     val windowVotes: Long
 )
+
+/**
+ * All-time stats of a single POI, shown in the attraction detail screen: the
+ * score summed over ALL votes ever cast (not just the period window).
+ */
+data class PoiStats(
+    val totalScore: Long,
+    val totalVotes: Int
+)

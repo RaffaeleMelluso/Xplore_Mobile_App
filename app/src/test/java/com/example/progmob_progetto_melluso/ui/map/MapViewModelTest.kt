@@ -2,12 +2,15 @@ package com.example.progmob_progetto_melluso.ui.map
 
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.ghost.Ghost
 import com.example.progmob_progetto_melluso.map.MapRepository
 import com.example.progmob_progetto_melluso.poi.PoiRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.travel.LocationSample
+import com.example.progmob_progetto_melluso.travel.StaleReason
+import com.example.progmob_progetto_melluso.travel.TravelConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -20,6 +23,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -227,6 +231,52 @@ class MapViewModelTest {
 
         assertEquals("only the restored traveler comes back", listOf(ghostA), viewModel.uiState.value.ghosts)
         assertEquals(setOf("b"), viewModel.uiState.value.hiddenGhostIds)
+    }
+
+    /**
+     * Verifica che un viaggio attivo "in stallo" (l'utente è lontano
+     * dall'ancora di partenza) venga segnalato nello stato con il motivo, e
+     * che "tieni il viaggio" / "chiudi il viaggio" si comportino come atteso:
+     * il primo sopprime il prompt, il secondo chiude il viaggio attivo.
+     */
+    @Test
+    fun staleTravel_flaggedFarFromAnchor_keepAndEndBehave() = runTest(dispatcher) {
+        val repository = mock<MapRepository>()
+        val anchor = TravelPathPointEntity(
+            id = 1L, travelId = 1L, latitude = 45.0, longitude = 7.0, recordedAtUtcMillis = 100L
+        )
+        val active = TravelEntity(
+            id = 1L, startUtcMillis = 100L, endUtcMillis = null, travelTimeZoneId = "UTC", title = null
+        )
+        whenever(repository.observeCurrentLocation())
+            .thenReturn(flowOf(LocationSample(45.6, 7.0, 200L, 5f))) // ~66 km from the anchor
+        whenever(repository.observeActivePath()).thenReturn(flowOf(listOf(anchor)))
+        whenever(repository.observePois()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observeGhosts()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observeTravels()).thenReturn(flowOf(listOf(active)))
+        whenever(repository.observeTravelCities()).thenReturn(flowOf(emptyList()))
+        val voteRepository = mock<PoiVoteRepository>()
+        whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
+
+        // Fixed clock right after the trip start: the trip is recent, so the
+        // staleness must come from the DISTANCE trigger, not the age one.
+        val viewModel = MapViewModel(
+            repository, mock<PoiRepository>(), voteRepository, TravelConfig(), { 200L }
+        )
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        advanceUntilIdle()
+
+        assertEquals(StaleReason.TOO_FAR, viewModel.uiState.value.staleTravel?.reason)
+
+        // "Keep it": the prompt is suppressed for this trip.
+        viewModel.keepStaleTravel()
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.staleTravel)
+
+        // "End trip": the active travel is closed through the repository.
+        viewModel.endStaleTravel()
+        advanceUntilIdle()
+        verify(repository).stopTravel()
     }
 
     /**

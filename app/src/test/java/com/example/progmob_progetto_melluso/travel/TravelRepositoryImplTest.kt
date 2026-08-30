@@ -335,27 +335,29 @@ class TravelRepositoryImplTest {
     }
 
     /**
-     * Verifica che quando l'utente si allontana oltre il raggio prestabilito dal punto di inizio,
-     * il viaggio corrente venga chiuso e ne venga aperto uno nuovo (segmentazione automatica).
+     * Verifica che l'allontanamento oltre il raggio dall'ancora NON chiuda più
+     * il viaggio in silenzio: la fine della vacanza viene segnalata alla UI
+     * (TravelStaleness) che chiede all'utente prima di chiudere, quindi il
+     * punto viene registrato nello stesso viaggio che resta attivo.
      */
     @Test
-    fun recordLocation_segmentsWhenLeavingAnchorRadius() = runTest {
+    fun recordLocation_keepsTravelOpenWhenLeavingAnchorRadius() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
         val existing = activeTravel(1L)
         whenever(travelDao.activeTravelOnce()).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
-        whenever(travelDao.insert(any())).thenReturn(2L)
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L))
-        // around 150m from the anchor: the vacation is over, a new travel opens.
+        // around 150m from the anchor: beyond the radius, but the trip is NOT
+        // closed behind the user's back — the point is recorded normally.
         val result = repository.recordLocation(LocationSample(0.0, 0.00135, 1_000L))
 
-        assertEquals(LocationRecordResult.Recorded(2L, true), result)
-        verify(travelDao).update(existing.copy(endUtcMillis = 1_000L))
-        verify(pathPointDao).insert(argThat { travelId == 2L })
+        assertEquals(LocationRecordResult.Recorded(1L, false), result)
+        verify(travelDao, never()).update(any())
+        verify(pathPointDao).insert(argThat { travelId == 1L && longitude == 0.00135 })
     }
 
     /**
@@ -399,11 +401,12 @@ class TravelRepositoryImplTest {
     }
 
     /**
-     * Verifica che la logica di segmentazione (uscita dal raggio) funzioni correttamente anche
-     * dopo un riavvio dell'app, ricaricando il punto di riferimento dai dati salvati.
+     * Verifica che, anche dopo un riavvio (ancora ricaricata dai dati salvati),
+     * un campione oltre il raggio dall'ancora NON chiuda il viaggio in
+     * silenzio: il punto resta nel viaggio attivo e la chiusura spetta alla UI.
      */
     @Test
-    fun recordLocation_segmentsUsingStoredAnchor() = runTest {
+    fun recordLocation_keepsTravelOpenUsingStoredAnchor() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
         val existing = activeTravel(1L)
@@ -415,14 +418,14 @@ class TravelRepositoryImplTest {
         )
         whenever(travelDao.activeTravelOnce()).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(storedPoints)
-        whenever(travelDao.insert(any())).thenReturn(2L)
 
         // A fresh repository rebuilds the anchor from storage; a sample is 111m
-        // from the anchor leaves the radius and ends the vacation.
+        // from the anchor: beyond the radius, but the trip stays open.
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
         val result = repository.recordLocation(LocationSample(0.0, 0.0010, 2_000L))
 
-        assertEquals(LocationRecordResult.Recorded(2L, true), result)
-        verify(travelDao).update(existing.copy(endUtcMillis = 2_000L))
+        assertEquals(LocationRecordResult.Recorded(1L, false), result)
+        verify(travelDao, never()).update(any())
+        verify(pathPointDao).insert(argThat { travelId == 1L })
     }
 }

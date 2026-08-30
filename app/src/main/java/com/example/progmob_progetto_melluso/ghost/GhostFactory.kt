@@ -3,6 +3,7 @@ package com.example.progmob_progetto_melluso.ghost
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.journal.JournalMedia
+import com.example.progmob_progetto_melluso.journal.JournalTransport
 import com.example.progmob_progetto_melluso.journal.JournalVisit
 import com.example.progmob_progetto_melluso.travel.TravelConfig
 import kotlin.math.atan2
@@ -97,7 +98,10 @@ class GhostFactory(
         // The places this traveler visited (with their vote), from the shared
         // [DemoGhostVisits] source: the same data the trends seed stores as
         // real votes, so the ghost card and the trends always agree.
-        val visits: List<DemoGhostVisits.Visit>
+        val visits: List<DemoGhostVisits.Visit>,
+        // The transport segments this traveler reported (examples of the
+        // journal transport flow, same model as a real trip).
+        val transports: List<DemoGhostVisits.TransportSpec> = emptyList()
     ) {
         fun toGhost(nowMillis: Long, clock: () -> Long, poisByTitle: Map<String, PoiEntity>): Ghost {
             // Past visitors sit at a fixed position on their route (an offset
@@ -141,6 +145,15 @@ class GhostFactory(
                         note = null,
                         score = poi?.votes ?: 0,
                         myVote = spec.myVote
+                    )
+                },
+                transports = transports.mapIndexed { index, spec ->
+                    JournalTransport(
+                        id = userId.hashCode().toLong() * -1L - (index + 1),
+                        travelId = -1L,
+                        mode = spec.mode,
+                        lineName = spec.lineName,
+                        startUtcMillis = nowMillis - spec.minutesAgo * 60_000L
                     )
                 }
             )
@@ -256,7 +269,8 @@ class GhostFactory(
                     route = TURIN_ROUTE_A,
                     speedMetersPerSecond = 1.4,
                     mediaTitles = listOf("photo" to "Lezioni, Corso Svizzera", "photo" to "Parco Dora"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-1")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-1"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-1")
                 ),
                 Persona(
                     userId = "ghost-turin-2",
@@ -300,7 +314,8 @@ class GhostFactory(
                     route = TURIN_CENTRO_A,
                     speedMetersPerSecond = 1.1,
                     mediaTitles = listOf("photo" to "Museo Egizio", "photo" to "Piazza San Carlo"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-5")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-5"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-5")
                 ),
                 Persona(
                     userId = "ghost-turin-6",
@@ -311,7 +326,8 @@ class GhostFactory(
                     route = TURIN_CENTRO_A,
                     speedMetersPerSecond = 1.5,
                     mediaTitles = listOf("photo" to "Porta Nuova di corsa"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-6")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-6"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-6")
                 ),
                 Persona(
                     userId = "ghost-turin-7",
@@ -322,7 +338,8 @@ class GhostFactory(
                     route = TURIN_CENTRO_B,
                     speedMetersPerSecond = 1.2,
                     mediaTitles = listOf("photo" to "Mole Antonelliana", "video" to "Panorama da Piazza Vittorio"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-7")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-7"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-7")
                 ),
                 Persona(
                     userId = "ghost-turin-8",
@@ -366,7 +383,8 @@ class GhostFactory(
                     route = TURIN_PORTA_SUSA,
                     speedMetersPerSecond = 1.4,
                     mediaTitles = listOf("photo" to "Piazza Statuto"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-11")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-11"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-11")
                 ),
                 Persona(
                     userId = "ghost-turin-12",
@@ -388,7 +406,8 @@ class GhostFactory(
                     route = TURIN_REGINA,
                     speedMetersPerSecond = 1.2,
                     mediaTitles = listOf("photo" to "Porta Palatina", "photo" to "Regio Parco"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-13")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-13"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-13")
                 ),
                 Persona(
                     userId = "ghost-turin-14",
@@ -432,7 +451,8 @@ class GhostFactory(
                     route = TURIN_VANCHIGLIA,
                     speedMetersPerSecond = 1.1,
                     mediaTitles = listOf("photo" to "Gran Madre"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-17")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-turin-17"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-turin-17")
                 ),
                 Persona(
                     userId = "ghost-turin-18",
@@ -513,7 +533,8 @@ class GhostFactory(
                     route = CERIGNOLA_ROUTE_C,
                     speedMetersPerSecond = 1.2,
                     mediaTitles = listOf("photo" to "Stazione di Cerignola Città"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-cerignola-3")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-cerignola-3"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-cerignola-3")
                 ),
                 Persona(
                     userId = "ghost-cerignola-4",
@@ -535,7 +556,8 @@ class GhostFactory(
                     route = CERIGNOLA_ROUTE_E,
                     speedMetersPerSecond = 1.1,
                     mediaTitles = listOf("photo" to "Piazza della Repubblica", "video" to "Villa Comunale"),
-                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-cerignola-5")
+                    visits = DemoGhostVisits.visitsByUser.getValue("ghost-cerignola-5"),
+                    transports = DemoGhostVisits.transportsByUser.getValue("ghost-cerignola-5")
                 )
             )
         )

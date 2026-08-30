@@ -8,6 +8,13 @@ import androidx.room.Update
 import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Table `travel_cities`: the destinations detected/reported inside a trip.
+ *
+ * It is a child of `travels` (`travelId` FK, CASCADE): one travel can visit
+ * several cities in order of arrival, and the map filter uses these rows to
+ * label each trip with its destinations.
+ */
 @Dao
 interface TravelCityDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

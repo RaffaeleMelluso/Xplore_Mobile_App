@@ -10,10 +10,9 @@ import kotlinx.coroutines.flow.Flow
  * Responsibilities:
  * - keep at most one active travel (the "libretto" entry currently being built);
  * - record path points applying spatial/temporal filters;
- * - detect the end of a vacation automatically: when the user moves further
- *   than [TravelConfig.tripEndDistanceMeters] in a straight line from the
- *   trip's anchor point (its first recorded location), the active travel is
- *   closed and a new one opens.
+ * - expose the staleness signals ([TravelStaleness], evaluated in the UI)
+ *   that let the user CONFIRM the end of a vacation instead of having the
+ *   app close the trip silently in the background.
  */
 interface TravelRepository {
 
@@ -45,12 +44,11 @@ interface TravelRepository {
      * Feeds a location sample into the path pipeline.
      *
      * How it works: ensures active travel exists (auto-starting one if
-     * needed, timeline-style), then checks the straight-line distance from the
-     * trip's anchor point. Leaving the vacation area (distance >=
-     * [TravelConfig.tripEndDistanceMeters]) closes the current travel and opens
-     * a new one anchored at the new location. Otherwise, the sample is filtered
-     * with the spatial/temporal thresholds and, if meaningful, appended as a
-     * path point.
+     * needed, timeline-style), then filters the sample with the
+     * spatial/temporal thresholds and, if meaningful, appends it as a path
+     * point. The trip is never closed silently here: when the user is far
+     * from the anchor or days passed, [TravelStaleness] flags the trip in the
+     * UI layer and the user confirms the close.
      *
      * @param sample The provider-agnostic location reading to process.
      * @return [LocationRecordResult.Recorded] when stored, [LocationRecordResult.Skipped] otherwise.

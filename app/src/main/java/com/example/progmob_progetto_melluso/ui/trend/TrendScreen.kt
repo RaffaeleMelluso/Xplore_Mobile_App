@@ -64,7 +64,44 @@ fun TrendScreen(modifier: Modifier = Modifier) {
         factory = remember(context) { TrendViewModelFactory(AppContainer.trendRepository(context)) }
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val poiStats by viewModel.poiStats.collectAsStateWithLifecycle()
 
+    // Which detail screen is open, resolved from the selection in the state:
+    // an attraction (from the ranking or from a city) or a whole city.
+    val selectedPoi = uiState.poiTrends.firstOrNull { it.poiId == uiState.selectedPoiId }
+    val selectedCity = uiState.cityTrends.firstOrNull { it.cityName == uiState.selectedCityName }
+
+    when {
+        selectedPoi != null -> PoiTrendDetail(
+            item = selectedPoi,
+            stats = poiStats,
+            periodLabel = stringResource(uiState.period.labelRes),
+            onBack = viewModel::closePoiDetail
+        )
+        selectedCity != null -> CityTrendDetail(
+            city = selectedCity,
+            pois = uiState.poiTrends.filter { it.city == selectedCity.cityName },
+            periodLabel = stringResource(uiState.period.labelRes),
+            onBack = viewModel::closeDetail,
+            onOpenPoi = viewModel::openPoi
+        )
+        else -> TrendsRanking(
+            uiState = uiState,
+            viewModel = viewModel,
+            modifier = modifier
+        )
+    }
+}
+
+/**
+ * The ranking list: filters on top, then the ranked attractions or cities.
+ */
+@Composable
+private fun TrendsRanking(
+    uiState: TrendUiState,
+    viewModel: TrendViewModel,
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -116,8 +153,14 @@ fun TrendScreen(modifier: Modifier = Modifier) {
             }
         } else {
             when (uiState.scope) {
-                TrendScope.ATTRACTIONS -> AttractionTrendList(items = uiState.poiTrends)
-                TrendScope.CITIES -> CityTrendList(items = uiState.cityTrends)
+                TrendScope.ATTRACTIONS -> AttractionTrendList(
+                    items = uiState.poiTrends,
+                    onOpenPoi = viewModel::openPoi
+                )
+                TrendScope.CITIES -> CityTrendList(
+                    items = uiState.cityTrends,
+                    onOpenCity = viewModel::openCity
+                )
             }
         }
     }
@@ -158,10 +201,11 @@ private fun FilterPill(
     }
 }
 
-/** Scrollable list of the ranked attractions (read-only ranking). */
+/** Scrollable list of the ranked attractions (read-only ranking, tappable). */
 @Composable
 private fun AttractionTrendList(
     items: List<PoiTrendItem>,
+    onOpenPoi: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) {
@@ -173,7 +217,8 @@ private fun AttractionTrendList(
             AttractionTrendRow(
                 item = item,
                 rank = index + 1,
-                votesLabel = stringResource(R.string.trends_votes_count, item.windowVotes)
+                votesLabel = stringResource(R.string.trends_votes_count, item.windowVotes),
+                onClick = { onOpenPoi(item.poiId) }
             )
             Spacer(Modifier.height(8.dp))
         }
@@ -193,9 +238,11 @@ private fun AttractionTrendRow(
     item: PoiTrendItem,
     rank: Int,
     votesLabel: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
+        onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainer
@@ -247,10 +294,11 @@ private fun AttractionTrendRow(
     }
 }
 
-/** Scrollable list of the ranked cities. */
+/** Scrollable list of the ranked cities (read-only ranking, tappable). */
 @Composable
 private fun CityTrendList(
     items: List<CityTrendItem>,
+    onOpenCity: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) {
@@ -262,7 +310,8 @@ private fun CityTrendList(
             CityTrendRow(
                 item = item,
                 rank = index + 1,
-                votesLabel = stringResource(R.string.trends_votes_count, item.windowVotes)
+                votesLabel = stringResource(R.string.trends_votes_count, item.windowVotes),
+                onClick = { onOpenCity(item.cityName) }
             )
             Spacer(Modifier.height(8.dp))
         }
@@ -275,9 +324,11 @@ private fun CityTrendRow(
     item: CityTrendItem,
     rank: Int,
     votesLabel: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
+        onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainer

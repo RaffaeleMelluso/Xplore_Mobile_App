@@ -69,6 +69,8 @@ class MapRepositoryImpl(
 
     override fun observeTravelCities(): Flow<List<TravelCityEntity>> = travelCityDao.allCities()
 
+    override suspend fun stopTravel(): Boolean = travelRepository.stopTravel()
+
     override fun observeGhosts(): Flow<List<Ghost>> =
         combine(
             locationFlow.onStart { emit(DEFAULT_ANCHOR) },

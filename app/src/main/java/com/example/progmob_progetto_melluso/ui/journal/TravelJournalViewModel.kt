@@ -136,6 +136,20 @@ class TravelJournalViewModel(
         viewModelScope.launch { journalRepository.removeMedia(mediaId) }
     }
 
+    /**
+     * Reports a transport segment for the opened travel (mode + optional line
+     * number), the simple flow of spec §3.1.
+     */
+    fun addTransport(mode: com.example.progmob_progetto_melluso.journal.TransportMode, lineName: String?) {
+        val id = selectedTravelId.value ?: return
+        viewModelScope.launch { journalRepository.addTransport(id, mode, lineName) }
+    }
+
+    /** Removes a reported transport segment from the opened travel. */
+    fun removeTransport(transportId: Long) {
+        viewModelScope.launch { journalRepository.removeTransport(transportId) }
+    }
+
     /** Renames a detected destination (region/city) of the opened travel. */
     fun renameCity(cityId: Long, name: String) {
         viewModelScope.launch {

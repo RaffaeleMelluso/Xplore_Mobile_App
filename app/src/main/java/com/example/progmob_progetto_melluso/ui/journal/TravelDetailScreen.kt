@@ -14,6 +14,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,6 +78,7 @@ import com.example.progmob_progetto_melluso.ui.map.STYLE_URL
 import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -90,7 +93,9 @@ import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.journal.JournalCity
 import com.example.progmob_progetto_melluso.journal.JournalMedia
 import com.example.progmob_progetto_melluso.journal.JournalPathPoint
+import com.example.progmob_progetto_melluso.journal.JournalTransport
 import com.example.progmob_progetto_melluso.journal.TravelJournal
+import com.example.progmob_progetto_melluso.journal.TransportMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -114,6 +119,8 @@ import java.util.Locale
  * @param onSave saves the edited title/description.
  * @param onAddMedia adds a picked photo/video (mediaType "photo"/"video").
  * @param onRemoveMedia removes a photo/video.
+ * @param onAddTransport reports a transport segment (mode + line number).
+ * @param onRemoveTransport removes a reported transport segment.
  * @param onRenameCity renames a detected destination.
  * @param onRemoveVisit removes a visited POI.
  * @param onVotePoi votes a POI up (+1) or down (-1).
@@ -126,6 +133,8 @@ fun TravelDetailScreen(
     onSave: (String, String) -> Unit,
     onAddMedia: (String, String) -> Unit,
     onRemoveMedia: (Long) -> Unit,
+    onAddTransport: (com.example.progmob_progetto_melluso.journal.TransportMode, String?) -> Unit,
+    onRemoveTransport: (Long) -> Unit,
     onRenameCity: (Long, String) -> Unit,
     onRemoveVisit: (Long) -> Unit,
     onVotePoi: (Long, Int) -> Unit,
@@ -201,6 +210,15 @@ fun TravelDetailScreen(
             CitiesSection(
                 cities = journal.cities,
                 onRename = onRenameCity
+            )
+
+            Spacer(Modifier.height(24.dp))
+
+            // Transport segments reported during the trip (simple flow).
+            TransportsSection(
+                transports = journal.transports,
+                onAdd = onAddTransport,
+                onRemove = onRemoveTransport
             )
 
             Spacer(Modifier.height(24.dp))
@@ -676,6 +694,229 @@ private fun VisitsSection(
             }
         }
     }
+}
+
+/** Label of a transport mode, shown in the journal rows and the picker. */
+private val TransportMode.labelRes: Int
+    get() = when (this) {
+        TransportMode.WALK -> R.string.transport_walk
+        TransportMode.BUS -> R.string.transport_bus
+        TransportMode.TRAM -> R.string.transport_tram
+        TransportMode.METRO -> R.string.transport_metro
+        TransportMode.FERRY -> R.string.transport_ferry
+    }
+
+/**
+ * Transport segments reported during the trip (spec §3.1, simple flow).
+ *
+ * How it works: each row shows a placeholder icon + the mode (with the line
+ * number when the user reported one) and can be removed; the "Add" button
+ * opens the small picker dialog.
+ */
+@Composable
+private fun TransportsSection(
+    transports: List<JournalTransport>,
+    onAdd: (TransportMode, String?) -> Unit,
+    onRemove: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.journal_transports_label),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(8.dp))
+        if (transports.isEmpty()) {
+            Text(
+                text = stringResource(R.string.journal_no_transports),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            transports.forEach { transport ->
+                TransportRow(transport = transport, onRemove = { onRemove(transport.id) })
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        Row(modifier = Modifier.padding(top = 4.dp)) {
+            OutlinedButton(onClick = { showDialog = true }) {
+                Text(stringResource(R.string.journal_add_transport))
+            }
+        }
+    }
+
+    if (showDialog) {
+        AddTransportDialog(
+            onConfirm = { mode, line ->
+                onAdd(mode, line)
+                showDialog = false
+            },
+            onDismiss = { showDialog = false }
+        )
+    }
+}
+
+/** One reported transport segment row, with remove. */
+@Composable
+private fun TransportRow(
+    transport: JournalTransport,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TransportModeIcon(mode = transport.mode)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = transportLabel(transport.mode, transport.lineName),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = formatDate(transport.startUtcMillis),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = stringResource(R.string.journal_remove_transport)
+                )
+            }
+        }
+    }
+}
+
+/** Placeholder icon of a transport mode: a tinted circle with a glyph. */
+@Composable
+private fun TransportModeIcon(mode: TransportMode, modifier: Modifier = Modifier) {
+    val glyph = when (mode) {
+        TransportMode.WALK -> "\uD83D\uDEB6"
+        TransportMode.BUS -> "\uD83D\uDE8C"
+        TransportMode.TRAM -> "\uD83D\uDE8B"
+        TransportMode.METRO -> "\uD83D\uDE87"
+        TransportMode.FERRY -> "\u26F4\uFE0F"
+    }
+    val background = when (mode) {
+        TransportMode.WALK -> Color(0xFF16A34A)
+        TransportMode.BUS -> Color(0xFF2563EB)
+        TransportMode.TRAM -> Color(0xFFDC2626)
+        TransportMode.METRO -> Color(0xFF7C3AED)
+        TransportMode.FERRY -> Color(0xFF0891B2)
+    }
+    Box(
+        modifier = modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(background),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = glyph, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+/** "Bus · Line 4" (or just the mode label when no line was reported). */
+@Composable
+private fun transportLabel(mode: TransportMode, lineName: String?): String {
+    val modeLabel = stringResource(mode.labelRes)
+    return if (lineName.isNullOrBlank()) {
+        modeLabel
+    } else {
+        stringResource(R.string.transport_with_line, modeLabel, lineName)
+    }
+}
+
+/** Simple dialog to report a transport: pick the mode, optionally the line. */
+@Composable
+private fun AddTransportDialog(
+    onConfirm: (TransportMode, String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selected by remember { mutableStateOf(TransportMode.BUS) }
+    var line by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.journal_add_transport)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.transport_mode_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                TransportMode.entries.forEach { mode ->
+                    Surface(
+                        onClick = { selected = mode },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selected == mode) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainer
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TransportModeIcon(mode)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = stringResource(mode.labelRes),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (selected == mode) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+                // Only the vehicles with a line ask for the number; walking
+                // has none (keeps the flow "simple").
+                if (selected != TransportMode.WALK) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = line,
+                        onValueChange = { line = it },
+                        label = { Text(stringResource(R.string.transport_line_label)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selected, line.ifBlank { null }) }) {
+                Text(stringResource(R.string.journal_add_transport_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.journal_delete_cancel))
+            }
+        }
+    )
 }
 
 /**

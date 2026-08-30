@@ -9,9 +9,11 @@ import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
 import com.example.progmob_progetto_melluso.data.dao.TravelMediaDao
+import com.example.progmob_progetto_melluso.data.dao.TravelTransportDao
 import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelMediaEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelTransportEntity
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelCityDetector
@@ -42,6 +44,7 @@ import kotlinx.coroutines.flow.map
  * @param travelMediaDao DAO for photos/videos.
  * @param travelCityDao DAO for detected destinations.
  * @param travelPoiVisitDao DAO for POI visits.
+ * @param travelTransportDao DAO for the reported transport segments.
  * @param pathPointDao DAO for the recorded path.
  * @param poiDao DAO for the POIs (scores and backfill detection).
  * @param poiVoteRepository the shared vote engine (my votes + votePoi), so
@@ -59,6 +62,7 @@ class TravelJournalRepositoryImpl(
     private val travelMediaDao: TravelMediaDao,
     private val travelCityDao: TravelCityDao,
     private val travelPoiVisitDao: TravelPoiVisitDao,
+    private val travelTransportDao: TravelTransportDao,
     private val pathPointDao: TravelPathPointDao,
     private val poiDao: PoiDao,
     private val poiVoteRepository: PoiVoteRepository,
@@ -137,9 +141,22 @@ class TravelJournalRepositoryImpl(
                     list.map { JournalPathPoint(it.latitude, it.longitude) }
                 }
 
+                // The transport segments reported during the trip.
+                val transportsUi = travelTransportDao.transportsForTravel(travelId).map { list ->
+                    list.map { t ->
+                        JournalTransport(
+                            id = t.id,
+                            travelId = t.travelId,
+                            mode = TransportMode.fromStorage(t.transportType),
+                            lineName = t.lineName,
+                            startUtcMillis = t.startUtcMillis
+                        )
+                    }
+                }
+
                 // combine() has typed overloads up to five flows, so the five
-                // existing streams build the journal and the path is merged in
-                // a second (nested) combine.
+                // existing streams build the journal and the path + transports
+                // are merged in a second (nested) combine.
                 combine(
                     combine(mediaUi, citiesUi, visitsUi, poisUi, myVotesUi) { media, cities, visits, pois, myVotes ->
                         val scoreByPoi = pois.associateBy { it.id }
@@ -162,8 +179,11 @@ class TravelJournalRepositoryImpl(
                             }
                         )
                     },
-                    pathUi
-                ) { journal, path -> journal.copy(pathPoints = path) }
+                    pathUi,
+                    transportsUi
+                ) { journal, path, transports ->
+                    journal.copy(pathPoints = path, transports = transports)
+                }
             }
         }
 
@@ -199,6 +219,24 @@ class TravelJournalRepositoryImpl(
                 createdByUserId = null
             )
         )
+    }
+
+    override suspend fun addTransport(travelId: Long, mode: TransportMode, lineName: String?) {
+        travelTransportDao.insert(
+            TravelTransportEntity(
+                travelId = travelId,
+                transportType = mode.storageName,
+                lineName = lineName?.trim()?.ifBlank { null },
+                departureName = null,
+                arrivalName = null,
+                startUtcMillis = clock(),
+                endUtcMillis = null
+            )
+        )
+    }
+
+    override suspend fun removeTransport(id: Long) {
+        travelTransportDao.deleteById(id)
     }
 
     override suspend fun removeMedia(id: Long) {

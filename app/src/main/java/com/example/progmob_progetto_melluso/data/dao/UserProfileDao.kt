@@ -7,6 +7,13 @@ import androidx.room.Query
 import com.example.progmob_progetto_melluso.data.entities.UserProfileEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Table `user_profiles`: one row per signed-in user, keyed by
+ * `firebaseUserId`.
+ *
+ * It is the owning side that other tables point to: `pois.createdByUserId`
+ * (who added the POI) and `poi_votes.voterUserId` (who voted).
+ */
 @Dao
 interface UserProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

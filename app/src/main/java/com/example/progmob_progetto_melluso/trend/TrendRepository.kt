@@ -24,6 +24,12 @@ interface TrendRepository {
     fun observeCityTrends(period: TrendPeriod): Flow<List<CityTrendItem>>
 
     /**
+     * All-time stats of one POI (score and vote count over ALL votes ever
+     * cast), shown in the attraction detail screen opened from the ranking.
+     */
+    fun observePoiStats(poiId: Long): Flow<PoiStats>
+
+    /**
      * Idempotent demo seed for the trends page: inserts the demo POIs when the
      * table is empty and, when no vote exists yet, seeds the community votes
      * (same simulated travelers as the ghosts) spread over the last months, so

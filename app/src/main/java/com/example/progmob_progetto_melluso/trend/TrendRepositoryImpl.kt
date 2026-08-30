@@ -60,6 +60,12 @@ class TrendRepositoryImpl(
             rows.map { row -> CityTrendItem(row.cityName, row.windowScore, row.windowVotes) }
         }
 
+    override fun observePoiStats(poiId: Long): Flow<PoiStats> =
+        combine(
+            poiVoteDao.voteScoreForPoi(poiId),
+            poiVoteDao.votesForPoi(poiId)
+        ) { score, votes -> PoiStats(totalScore = score, totalVotes = votes.size) }
+
     override suspend fun ensureTrendSeed() {
         // The trends page must work even when the Map tab was never opened:
         // insert the demo POIs that are missing (idempotent per title, the

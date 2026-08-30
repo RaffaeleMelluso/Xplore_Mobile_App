@@ -18,6 +18,13 @@ data class PoiVisitView(
     val note: String?
 )
 
+/**
+ * Table `travel_poi_visits`: the bridge between `travels` and `pois`.
+ *
+ * One row means "this trip (FK `travelId`, CASCADE) visited this POI (FK
+ * `poiId`) at a given time", so the journal detail shows every visited
+ * attraction. The object [PoiVisitView] joins the visit with the POI's title.
+ */
 @Dao
 interface TravelPoiVisitDao {
     // IGNORE keeps the FIRST visit when the same (travel, POI) is detected
