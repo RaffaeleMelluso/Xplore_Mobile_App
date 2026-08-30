@@ -50,7 +50,7 @@ import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
         GhostEntity::class,
         TravelCityEntity::class
     ],
-    version = 8
+    version = 10
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun travelDao(): TravelDao
@@ -106,6 +106,68 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_travel_poi_visits_travelId_poiId` " +
                         "ON `travel_poi_visits` (`travelId`, `poiId`)"
                 )
+            }
+        }
+
+        /**
+         * v8 -> v9: photos on the points of interest.
+         *
+         * What it changes:
+         * - `pois.imageUrl` (URL of a real photo of the place, loaded with
+         *   Coil) added as nullable text, so the map card and the trends
+         *   ranking can show the actual attraction.
+         *
+         * Purely additive: existing POIs keep their identity.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pois ADD COLUMN imageUrl TEXT")
+            }
+        }
+
+        /**
+         * v9 -> v10: static photos on the points of interest.
+         *
+         * What it changes:
+         * - `pois.imageResName` (name of the bundled drawable with the real
+         *   photo, for the demo POIs) and `pois.imageUri` (local file URI of
+         *   the gallery photo the user attached when adding a POI) replace
+         *   the old `pois.imageUrl` (remote Coil URLs, abandoned in favour of
+         *   bundled static images).
+         *
+         * SQLite versions shipped on older Android (minSdk 24) do not support
+         * DROP COLUMN, so the table is rebuilt with the classic Room pattern:
+         * create a new table without `imageUrl`, copy every row (IDs are
+         * preserved, so `poi_votes` and `travel_poi_visits` keep pointing at
+         * the same POIs), drop the old one and rename. Room runs migrations
+         * with foreign keys disabled, so the drop cannot cascade into the
+         * vote/visit rows.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pois_new` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`lat` REAL NOT NULL, " +
+                        "`lon` REAL NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`description` TEXT, " +
+                        "`category` TEXT, " +
+                        "`createdByUserId` TEXT, " +
+                        "`city` TEXT, " +
+                        "`imageResName` TEXT, " +
+                        "`imageUri` TEXT, " +
+                        "`votes` INTEGER NOT NULL" +
+                        ")"
+                )
+                db.execSQL(
+                    "INSERT INTO `pois_new` (id, lat, lon, title, description, " +
+                        "category, createdByUserId, city, votes) " +
+                        "SELECT id, lat, lon, title, description, category, " +
+                        "createdByUserId, city, votes FROM `pois`"
+                )
+                db.execSQL("DROP TABLE `pois`")
+                db.execSQL("ALTER TABLE `pois_new` RENAME TO `pois`")
             }
         }
 

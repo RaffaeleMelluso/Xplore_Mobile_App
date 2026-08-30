@@ -11,6 +11,8 @@ import com.example.progmob_progetto_melluso.map.DemoPoiSeed
 import com.example.progmob_progetto_melluso.ghost.GhostFactory
 import com.example.progmob_progetto_melluso.map.MapRepository
 import com.example.progmob_progetto_melluso.map.MapRepositoryImpl
+import com.example.progmob_progetto_melluso.poi.PoiRepository
+import com.example.progmob_progetto_melluso.poi.PoiRepositoryImpl
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepositoryImpl
 import com.example.progmob_progetto_melluso.service.LocationUpdates
@@ -36,7 +38,9 @@ object AppContainer {
                 .addMigrations(
                     AppDatabase.MIGRATION_5_6,
                     AppDatabase.MIGRATION_6_7,
-                    AppDatabase.MIGRATION_7_8
+                    AppDatabase.MIGRATION_7_8,
+                    AppDatabase.MIGRATION_8_9,
+                    AppDatabase.MIGRATION_9_10
                 )
                 .build()
                 .also { database = it }
@@ -63,6 +67,20 @@ object AppContainer {
     }
 
     /**
+     * POI catalog repository: reading is the same reactive table every screen
+     * observes; addPoi stores the user-created points of interest
+     * stamped with their owner, so the "my POIs" screen can list and remove
+     * only the user's own ones.
+     */
+    fun poiRepository(context: Context): PoiRepository {
+        val db = database(context)
+        return PoiRepositoryImpl(
+            poiDao = db.poiDao(),
+            userIdProvider = { FirebaseAuth.getInstance().currentUser?.uid ?: "local-user" }
+        )
+    }
+
+    /**
      * Trends repository wired to the votes table, the shared vote engine and
      * the demo POI seed (so the page is populated from the first launch).
      */
@@ -72,7 +90,7 @@ object AppContainer {
             poiVoteDao = db.poiVoteDao(),
             poiDao = db.poiDao(),
             poiVoteRepository = poiVoteRepository(context),
-            seedPois = DemoPoiSeed.turin + DemoPoiSeed.cerignola
+            seedPois = DemoPoiSeed.all
         )
     }
 
@@ -100,7 +118,7 @@ object AppContainer {
             travelCityDao = db.travelCityDao(),
             travelRepository = travelRepository(context),
             ghostSimulator = GhostFactory(),
-            poiSeed = DemoPoiSeed.turin + DemoPoiSeed.cerignola
+            poiSeed = DemoPoiSeed.all
         )
     }
 

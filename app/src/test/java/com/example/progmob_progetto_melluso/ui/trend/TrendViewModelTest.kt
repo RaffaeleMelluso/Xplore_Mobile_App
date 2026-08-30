@@ -18,7 +18,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -97,25 +96,10 @@ class TrendViewModelTest {
         verify(repository).ensureTrendSeed()
     }
 
-    /**
-     * Verifica che il voto dalla pagina trends passi dal motore di voto
-     * condiviso (stesso voto del journal e della mappa).
-     */
-    @Test
-    fun votePoi_delegatesToRepository() = runTest(dispatcher) {
-        val repository = mock<TrendRepository>()
-        whenever(repository.observePoiTrends(any<TrendPeriod>())).thenReturn(flowOf(emptyList()))
-        whenever(repository.observeCityTrends(any<TrendPeriod>())).thenReturn(flowOf(emptyList()))
-
-        val viewModel = TrendViewModel(repository)
-        backgroundScope.launch { viewModel.uiState.collect { } }
-        advanceUntilIdle()
-
-        viewModel.votePoi(3L, -1)
-        advanceUntilIdle()
-
-        verify(repository).votePoi(3L, -1)
-    }
+    // NOTE: there is intentionally no votePoi test here, mirroring the
+    // ViewModel: the trends page is READ-ONLY (from a ranking a user could
+    // vote places they never visited), so voting only happens where the visit
+    // is real (map POI card, journal visits) through the shared engine.
 
     /** Builds a minimal ranked attraction for the tests. */
     private fun poiItem() = PoiTrendItem(

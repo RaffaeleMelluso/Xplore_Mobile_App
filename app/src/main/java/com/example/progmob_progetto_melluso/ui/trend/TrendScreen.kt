@@ -36,7 +36,7 @@ import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.trend.CityTrendItem
 import com.example.progmob_progetto_melluso.trend.PoiTrendItem
 import com.example.progmob_progetto_melluso.trend.TrendPeriod
-import com.example.progmob_progetto_melluso.ui.common.PoiVoteButtons
+import com.example.progmob_progetto_melluso.ui.common.PoiImage
 
 /** Label of a period shown in the filter chips. */
 private val TrendPeriod.labelRes: Int
@@ -52,9 +52,10 @@ private val TrendPeriod.labelRes: Int
  * period (day/week/month/year) and per scope (single attractions or cities).
  *
  * How it works: the screen only collects [TrendUiState] and emits the user's
- * intents (select a filter, vote a POI). The rankings are computed from the
- * real community votes by [TrendViewModel], so voting from the journal or the
- * map re-ranks this page live, and voting here is the same vote everywhere.
+ * filter intents. The rankings are computed from the real community votes by
+ * [TrendViewModel], so a vote cast where the visit is REAL (map card, journal
+ * visit) re-ranks this page live. There is no voting here ON PURPOSE: from
+ * the ranking a user could vote places they never visited.
  */
 @Composable
 fun TrendScreen(modifier: Modifier = Modifier) {
@@ -115,10 +116,7 @@ fun TrendScreen(modifier: Modifier = Modifier) {
             }
         } else {
             when (uiState.scope) {
-                TrendScope.ATTRACTIONS -> AttractionTrendList(
-                    items = uiState.poiTrends,
-                    onVote = { poiId, voteValue -> viewModel.votePoi(poiId, voteValue) }
-                )
+                TrendScope.ATTRACTIONS -> AttractionTrendList(items = uiState.poiTrends)
                 TrendScope.CITIES -> CityTrendList(items = uiState.cityTrends)
             }
         }
@@ -160,11 +158,10 @@ private fun FilterPill(
     }
 }
 
-/** Scrollable list of the ranked attractions, each votable. */
+/** Scrollable list of the ranked attractions (read-only ranking). */
 @Composable
 private fun AttractionTrendList(
     items: List<PoiTrendItem>,
-    onVote: (Long, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) {
@@ -176,21 +173,26 @@ private fun AttractionTrendList(
             AttractionTrendRow(
                 item = item,
                 rank = index + 1,
-                votesLabel = stringResource(R.string.trends_votes_count, item.windowVotes),
-                onVote = onVote
+                votesLabel = stringResource(R.string.trends_votes_count, item.windowVotes)
             )
             Spacer(Modifier.height(8.dp))
         }
     }
 }
 
-/** One ranked attraction row: rank, name/category/city and the vote control. */
+/**
+ * One ranked attraction row: rank, photo, name/category/city and the score.
+ *
+ * Read-only ON PURPOSE: from here a user could vote places they never
+ * visited, so voting happens only where the visit is real (the map POI card
+ * when you are near the place, and the journal visits). The score shown is
+ * the same community score every other screen displays.
+ */
 @Composable
 private fun AttractionTrendRow(
     item: PoiTrendItem,
     rank: Int,
     votesLabel: String,
-    onVote: (Long, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -203,6 +205,19 @@ private fun AttractionTrendRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             RankBadge(rank)
+            // The photo slot is ALWAYS present (a themed placeholder when the
+            // POI has no photo or the image cannot be fetched), so every title
+            // in the ranking starts at the same x position — no misaligned
+            // rows between POIs with and without a picture.
+            Spacer(Modifier.width(8.dp))
+            PoiImage(
+                imageResName = item.imageResName,
+                imageUri = item.imageUri,
+                contentDescription = item.title,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -211,17 +226,23 @@ private fun AttractionTrendRow(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = listOfNotNull(item.category, item.city, votesLabel).joinToString(" · "),
+                    text = listOfNotNull(item.category, item.city).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            PoiVoteButtons(
-                poiId = item.poiId,
-                score = item.windowScore.toInt(),
-                myVote = item.myVote,
-                onVotePoi = onVote
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = item.windowScore.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = votesLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

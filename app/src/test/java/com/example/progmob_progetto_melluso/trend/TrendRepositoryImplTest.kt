@@ -21,8 +21,8 @@ import org.mockito.kotlin.whenever
 
 /**
  * Verifica che il repository dei trends aggreghi i voti reali (righe del DAO)
- * nei modelli di UI, attacchi il voto dell'utente, deleghi il voto al motore
- * condiviso e popoli i dati demo solo quando serve.
+ * nei modelli di UI, attacchi il voto dell'utente e popoli i dati demo solo
+ * quando serve. La pagina è in sola lettura: nessun voto parte da qui.
  */
 class TrendRepositoryImplTest {
 
@@ -92,27 +92,23 @@ class TrendRepositoryImplTest {
     }
 
     @Test
-    fun votePoi_delegatesToTheSharedEngine() = runTest {
-        repository().votePoi(1L, -1)
-
-        verify(voteRepository).votePoi(1L, -1)
-    }
-
-    @Test
-    fun ensureTrendSeed_seedsPoisWhenEmptyAndDelegatesVotes() = runTest {
-        whenever(poiDao.count()).thenReturn(0)
+    fun ensureTrendSeed_seedsMissingPoisAndDelegatesVotes() = runTest {
+        // Per-title idempotency: the SAME seed the map uses, so the trends
+        // page works even when the Map tab was never opened and new demo
+        // cities reach installs that already had POIs.
+        whenever(poiDao.countByTitle(any())).thenReturn(0)
 
         repository(seedPois = listOf(poi(1L), poi(2L))).ensureTrendSeed()
 
         // The missing demo POIs are inserted, and the community votes are
-        // seeded through the shared vote engine (the ghosts' own votes).
+        // seeded through the shared vote engine (ghosts + demo city spread).
         verify(poiDao, times(2)).insert(any<PoiEntity>())
         verify(voteRepository).ensureDemoVotes()
     }
 
     @Test
     fun ensureTrendSeed_keepsExistingPois() = runTest {
-        whenever(poiDao.count()).thenReturn(3)
+        whenever(poiDao.countByTitle(any())).thenReturn(1)
 
         repository(seedPois = listOf(poi(1L))).ensureTrendSeed()
 

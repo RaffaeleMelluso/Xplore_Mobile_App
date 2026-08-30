@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
@@ -90,7 +91,9 @@ import com.example.progmob_progetto_melluso.journal.JournalVisit
 import com.example.progmob_progetto_melluso.ghost.Ghost
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PathSegmenter
+import com.example.progmob_progetto_melluso.ui.common.PoiImage
 import com.example.progmob_progetto_melluso.ui.common.PoiVoteButtons
+import com.example.progmob_progetto_melluso.ui.poi.AddPoiDialog
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -137,6 +140,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
         factory = remember(context) {
             MapViewModelFactory(
                 mapRepository = AppContainer.mapRepository(context),
+                poiRepository = AppContainer.poiRepository(context),
                 poiVoteRepository = AppContainer.poiVoteRepository(context)
             )
         }
@@ -153,6 +157,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
 
     // Whether the nearby-travelers menu (hide/show by name) is open.
     var showNearbyTravelers by remember { mutableStateOf(false) }
+
+    // Whether the user is choosing ON THE MAP where to place the new POI
+    // (user reporting, spec §3.3): any map tap then places the point.
+    var pickingPoiLocation by remember { mutableStateOf(false) }
+
+    // The map point the user tapped while choosing the POI location; non-null
+    // opens the creation form prefilled with those coordinates.
+    var pickedPoiLocation by remember { mutableStateOf<LatLng?>(null) }
 
     // Selected marker info window: the tapped POI or ghost, shown as a card.
     var selectedPoi by remember { mutableStateOf<PoiEntity?>(null) }
@@ -207,8 +219,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
                             }
                         }
                         // Tap on empty map closes the info card; the card is
-                        // only shown when a POI/ghost is actually hit.
+                        // only shown when a POI/ghost is actually hit. While
+                        // picking a POI location, ANY tap places the point
+                        // and consumes the gesture (no card opens).
                         map.addOnMapClickListener { latLng ->
+                            if (pickingPoiLocation) {
+                                pickedPoiLocation = latLng
+                                return@addOnMapClickListener true
+                            }
                             val poi = overlaysRef.value?.poiAt(latLng)
                             val ghost = overlaysRef.value?.ghostAt(latLng)
                             // The route polyline is clickable too: tapping a
@@ -299,6 +317,59 @@ fun MapScreen(modifier: Modifier = Modifier) {
             gpsEnabled = gpsEnabled
         )
 
+        // Demo POI reporting (spec §3.3): the FAB starts/cancels the location
+        // picking on the map; the form then opens on the chosen point and the
+        // new POI joins the same pool as the seeded ones (map + trends).
+        if (mapReady) {
+            MapActionFab(
+                onClick = {
+                    if (pickingPoiLocation) {
+                        pickingPoiLocation = false
+                        pickedPoiLocation = null
+                    } else {
+                        pickingPoiLocation = true
+                        pickedPoiLocation = null
+                    }
+                },
+                icon = if (pickingPoiLocation) Icons.Filled.Close else Icons.Filled.Add,
+                contentDescription = stringResource(R.string.map_add_poi_button),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 160.dp)
+            )
+        }
+
+        // Picking banner: tells the user what to do and lets them cancel.
+        if (pickingPoiLocation) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.map_add_poi_picking),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = {
+                        pickingPoiLocation = false
+                        pickedPoiLocation = null
+                    }) {
+                        Text(stringResource(R.string.add_poi_cancel))
+                    }
+                }
+            }
+        }
+
         // Travel filter: a button opens a bottom sheet listing the trips; the
         // chosen one is drawn alone on the map (one trip at a time).
         if (mapReady) {
@@ -376,6 +447,25 @@ fun MapScreen(modifier: Modifier = Modifier) {
             )
         }
 
+        // Demo POI creation form, opened on the point the user picked on the
+        // map (lat/lon prefilled, still editable): the ViewModel stores the
+        // POI and the reactive flows sync map, ghosts and trends automatically.
+        pickedPoiLocation?.let { picked ->
+            AddPoiDialog(
+                initialLat = picked.latitude,
+                initialLon = picked.longitude,
+                onConfirm = { poi ->
+                    viewModel.addPoi(poi)
+                    pickedPoiLocation = null
+                    pickingPoiLocation = false
+                },
+                onDismiss = {
+                    pickedPoiLocation = null
+                    pickingPoiLocation = false
+                }
+            )
+        }
+
         if (uiState.isLoading && mapReady) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
@@ -398,6 +488,19 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 shadowElevation = 4.dp
             ) {
                 Column {
+                    // Real photo of the place: the bundled drawable for the
+                    // demo POIs, the user's gallery photo for the ones they
+                    // added (themed placeholder behind while decoding or when
+                    // the POI has no photo).
+                    PoiImage(
+                        imageResName = livePoi.imageResName,
+                        imageUri = livePoi.imageUri,
+                        contentDescription = livePoi.title,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    )
                     Row(
                         modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
