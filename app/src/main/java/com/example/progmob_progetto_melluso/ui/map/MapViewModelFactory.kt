@@ -5,10 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import com.example.progmob_progetto_melluso.map.MapRepository
 import com.example.progmob_progetto_melluso.poi.PoiRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
+import com.example.progmob_progetto_melluso.step.StepRepository
 
 /**
  * Factory that builds [MapViewModel] with its [MapRepository],
- * [PoiRepository] and [PoiVoteRepository] dependencies.
+ * [PoiRepository], [PoiVoteRepository] and [StepRepository] dependencies.
  *
  * How it works: the manual DI container ([AppContainer]) is not a
  * ViewModelProvider, so this factory bridges the two worlds.
@@ -16,13 +17,14 @@ import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 class MapViewModelFactory(
     private val mapRepository: MapRepository,
     private val poiRepository: PoiRepository,
-    private val poiVoteRepository: PoiVoteRepository
+    private val poiVoteRepository: PoiVoteRepository,
+    private val stepRepository: StepRepository
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MapViewModel::class.java)) {
-            return MapViewModel(mapRepository, poiRepository, poiVoteRepository) as T
+            return MapViewModel(mapRepository, poiRepository, poiVoteRepository, stepRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

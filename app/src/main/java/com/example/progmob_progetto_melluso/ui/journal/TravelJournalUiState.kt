@@ -14,6 +14,9 @@ import com.example.progmob_progetto_melluso.journal.TravelJournal
  *
  * @property travels the whole journal (newest first), used by the list screen.
  * @property activeTravel the ongoing travel (endUtcMillis == null), or null.
+ * @property activeSteps the live pedometer steps of the ongoing trip (shown in
+ *   the journal card without opening the detail).
+ * @property activeDistanceMeters the live pedometer distance of the ongoing trip.
  * @property selectedTravelId which travel is currently opened, or null for the list.
  * @property detail the mutable detail of the opened travel, or null when closed.
  * @property isTravelActionPending true while a start/stop request is being
@@ -23,6 +26,8 @@ import com.example.progmob_progetto_melluso.journal.TravelJournal
 data class TravelJournalUiState(
     val travels: List<JournalTravel> = emptyList(),
     val activeTravel: JournalTravel? = null,
+    val activeSteps: Long = 0,
+    val activeDistanceMeters: Double = 0.0,
     val selectedTravelId: Long? = null,
     val detail: TravelJournal? = null,
     val isTravelActionPending: Boolean = false,

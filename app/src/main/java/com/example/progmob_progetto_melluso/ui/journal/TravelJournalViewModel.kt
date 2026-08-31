@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -44,6 +45,17 @@ class TravelJournalViewModel(
         if (id == null) flowOf(null) else journalRepository.observeTravelDetails(id)
     }
 
+    /** Live pedometer totals of the ONGOING trip (journal card stats). */
+    private val activeIdFlow = travelsFlow.map { travels ->
+        travels.firstOrNull { it.endUtcMillis == null }?.travelId
+    }
+    private val activeStepsFlow = activeIdFlow.flatMapLatest { id ->
+        if (id == null) flowOf(0L) else journalRepository.observeTravelSteps(id)
+    }
+    private val activeDistanceFlow = activeIdFlow.flatMapLatest { id ->
+        if (id == null) flowOf(0.0) else journalRepository.observeTravelDistance(id)
+    }
+
     /**
      * Combined journal state: everything the tab needs.
      *
@@ -53,11 +65,15 @@ class TravelJournalViewModel(
     val uiState: StateFlow<TravelJournalUiState> = combine(
         travelsFlow,
         detailFlow,
-        travelActionPending
-    ) { travels, detail, pending ->
+        travelActionPending,
+        activeStepsFlow,
+        activeDistanceFlow
+    ) { travels, detail, pending, steps, distance ->
         TravelJournalUiState(
             travels = travels,
             activeTravel = travels.firstOrNull { it.endUtcMillis == null },
+            activeSteps = steps,
+            activeDistanceMeters = distance,
             selectedTravelId = selectedTravelId.value,
             detail = detail,
             isTravelActionPending = pending,

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ProgMob_Progetto_Melluso</string>
+    <string name="app_name">Xplore</string>
     <!--
     <string name="google_web_client_id">REPLACE_WITH_FIREBASE_WEB_CLIENT_ID</string>
     -->
@@ -53,6 +53,17 @@
     <string name="map_recenter">Recenter on my location</string>
     <string name="map_close_info">Close details</string>
     <string name="map_add_poi_button">Add a new point of interest</string>
+    <string name="map_actions_button">Map actions</string>
+    <string name="map_my_trips_label">My trips</string>
+    <string name="map_add_poi_label">Add POI</string>
+    <string name="map_add_poi_cancel_label">Cancel</string>
+    <string name="map_poi_votes_label">Community votes</string>
+    <string name="map_poi_vote_nearby_hint">You can vote this place only when you are close to it.</string>
+    <string name="map_trip_info_button">Trip info</string>
+    <string name="map_trip_info_back">Back to map</string>
+    <string name="map_trip_info_title">Trip info</string>
+    <string name="map_trip_info_timer_label">Trip duration</string>
+    <string name="map_trip_info_no_travel">No trip is currently ongoing. Start one from the journal to see live stats.</string>
     <!-- Add POI dialog -->
     <string name="add_poi_title">New point of interest</string>
     <string name="add_poi_field_name">Name</string>
@@ -93,12 +104,16 @@
     <string name="tracking_notification_title">Tracking your route</string>
     <string name="tracking_notification_text">Location is being recorded for your current travel.</string>
     <string name="tracking_stop">Stop tracking</string>
+    <string name="fence_channel_name">Points of interest nearby</string>
+    <string name="fence_notification_title">You are near a point of interest</string>
+    <string name="fence_notification_text">%1$s is right around the corner. Tap to open it on the map.</string>
     <!-- Travel journal -->
     <string name="journal_start_travel">Start trip</string>
     <string name="journal_stop_travel">Stop trip</string>
     <string name="journal_ongoing">Ongoing</string>
     <string name="journal_empty_title">No trips yet</string>
     <string name="journal_empty_body">Start a trip to begin your travel journal.</string>
+    <string name="journal_no_completed_trips">No completed trips yet. The ongoing trip is the card above.</string>
     <string name="journal_untitled">Untitled trip</string>
     <string name="journal_view_details">View journal</string>
     <string name="journal_back">Back</string>
@@ -113,6 +128,8 @@
     <string name="journal_video_description">Video</string>
     <string name="journal_no_media">No photos or videos yet.</string>
     <string name="journal_route_label">Route</string>
+    <string name="journal_trip_stats_label">Trip stats</string>
+    <string name="journal_stat_duration">Duration</string>
     <string name="journal_cities_label">Places visited</string>
     <string name="journal_no_cities">No places detected for this trip.</string>
     <string name="journal_visits_label">Visited places</string>
@@ -170,12 +187,15 @@
 
     <!-- Profile (privacy + statistics) -->
     <string name="profile_change_avatar">Change profile picture</string>
-    <string name="profile_avatar_change_hint">Tap the avatar or the name to change it from the gallery</string>
     <string name="profile_privacy_section">Privacy</string>
     <string name="profile_anonymous_label">Anonymous mode</string>
     <string name="profile_anonymous_desc">Hide your identity from other travelers</string>
     <string name="profile_show_paths_label">Show my travel paths</string>
     <string name="profile_show_paths_desc">Allow other travelers to see your routes</string>
+    <string name="profile_appearance_section">Appearance</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="profile_stats_section">Statistics</string>
     <string name="stat_steps">Steps</string>
     <string name="stat_days_active">Active days</string>

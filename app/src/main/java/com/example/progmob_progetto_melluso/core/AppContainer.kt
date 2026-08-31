@@ -17,6 +17,8 @@ import com.example.progmob_progetto_melluso.poi.PoiRepositoryImpl
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepositoryImpl
 import com.example.progmob_progetto_melluso.service.LocationUpdates
+import com.example.progmob_progetto_melluso.step.StepRepository
+import com.example.progmob_progetto_melluso.step.StepRepositoryImpl
 import com.example.progmob_progetto_melluso.travel.TravelCityDetector
 import com.example.progmob_progetto_melluso.travel.TravelRepository
 import com.example.progmob_progetto_melluso.travel.TravelRepositoryImpl
@@ -139,6 +141,23 @@ object AppContainer {
     /** Aggregate statistics DAO over the travel tables (profile stats). */
     fun statsDao(context: Context): StatsDao = database(context).statsDao()
 
+    /**
+     * Pedometer repository: consumes the hardware step sensor readings and
+     * stores per-travel, per-day totals. Shared by the tracking service (which
+     * feeds it in background) and by the map/journal (which observe the live
+     * totals of the active travel).
+     */
+    fun stepRepository(context: Context): StepRepository {
+        val db = database(context)
+        return StepRepositoryImpl(
+            stepCheckpointDao = db.stepCheckpointDao(),
+            stepDailySummaryDao = db.stepDailySummaryDao(),
+            travelDao = db.travelDao(),
+            timeZoneIdProvider = { TimeZone.getDefault().id },
+            userIdProvider = { currentUserId() }
+        )
+    }
+
     /** The signed-in Firebase uid, falling back to a local id when anonymous. */
     fun currentUserId(): String = FirebaseAuth.getInstance().currentUser?.uid ?: "local-user"
 
@@ -153,6 +172,7 @@ object AppContainer {
             travelMediaDao = db.travelMediaDao(),
             travelCityDao = db.travelCityDao(),
             travelPoiVisitDao = db.travelPoiVisitDao(),
+            stepDailySummaryDao = db.stepDailySummaryDao(),
             travelTransportDao = db.travelTransportDao(),
             pathPointDao = db.travelPathPointDao(),
             poiDao = db.poiDao(),

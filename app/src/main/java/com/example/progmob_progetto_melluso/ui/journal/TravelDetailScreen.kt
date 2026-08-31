@@ -59,11 +59,14 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -181,6 +184,17 @@ fun TravelDetailScreen(
                 Spacer(Modifier.height(24.dp))
             }
 
+            // Trip stats: pedometer steps, walked distance and duration (live
+            // while the trip is still ongoing).
+            TripStatsSection(
+                startUtcMillis = journal.travel.startUtcMillis,
+                endUtcMillis = journal.travel.endUtcMillis,
+                steps = journal.steps,
+                distanceMeters = journal.distanceMeters
+            )
+
+            Spacer(Modifier.height(24.dp))
+
             // Media section.
             MediaSection(
                 media = journal.media,
@@ -232,6 +246,119 @@ fun TravelDetailScreen(
         }
     }
 }
+
+/**
+ * Pedometer + duration card of a trip (spec §3.1: "registrare il numero di
+ * passi e le distanze percorse durante il viaggio" + the trip length).
+ *
+ * How it works: the duration is end-start for a closed trip; while the trip is
+ * still ongoing a [LaunchedEffect] ticks every second so the timer updates
+ * live. Steps and distance come from the shared pedometer tables (0 when the
+ * device has no step sensor or the trip predates the feature).
+ */
+@Composable
+private fun TripStatsSection(
+    startUtcMillis: Long,
+    endUtcMillis: Long?,
+    steps: Long,
+    distanceMeters: Double,
+    modifier: Modifier = Modifier
+) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    val ongoing = endUtcMillis == null
+    LaunchedEffect(ongoing) {
+        if (ongoing) {
+            while (true) {
+                delay(1_000L)
+                now = System.currentTimeMillis()
+            }
+        }
+    }
+    val durationMillis = (endUtcMillis ?: now) - startUtcMillis
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.journal_trip_stats_label),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(8.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 14.dp, horizontal = 8.dp)
+            ) {
+                TripStat(
+                    label = stringResource(R.string.journal_stat_duration),
+                    value = formatDuration(durationMillis),
+                    modifier = Modifier.weight(1f)
+                )
+                TripStat(
+                    label = stringResource(R.string.stat_steps),
+                    value = formatCount(steps),
+                    modifier = Modifier.weight(1f)
+                )
+                TripStat(
+                    label = stringResource(R.string.stat_distance),
+                    value = formatKilometers(distanceMeters),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+/** One value + label column of the trip stats card. */
+@Composable
+private fun TripStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Formats a duration as "Xh Ym" or "Ym" / "Xs" when shorter. */
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = (millis / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m"
+        minutes > 0 -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+}
+
+/** Formats a step count with thousands separators. */
+private fun formatCount(value: Long): String =
+    try {
+        java.text.NumberFormat.getIntegerInstance().format(value)
+    } catch (_: Exception) {
+        value.toString()
+    }
+
+/** Formats meters as km (one decimal) or meters below 1 km. */
+private fun formatKilometers(meters: Double): String =
+    if (meters >= 1_000.0) "%.1f km".format(meters / 1_000.0).replace('.', ',')
+    else "${meters.toInt()} m"
 
 /** Photos/videos added to the travel, with add and remove actions. */
 @Composable
@@ -603,8 +730,9 @@ private fun EditableDetails(
     onSave: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var title by remember(travelId) { mutableStateOf(initialTitle ?: "") }
-    var description by remember(travelId) { mutableStateOf(initialDescription ?: "") }
+    // rememberSaveable so a rotation does not wipe the fields being edited.
+    var title by rememberSaveable(travelId) { mutableStateOf(initialTitle ?: "") }
+    var description by rememberSaveable(travelId) { mutableStateOf(initialDescription ?: "") }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
@@ -673,8 +801,8 @@ private fun CityRow(
     onRename: (Long, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var editing by remember(city.cityId) { mutableStateOf(false) }
-    var name by remember(city.cityId) { mutableStateOf(city.name) }
+    var editing by rememberSaveable(city.cityId) { mutableStateOf(false) }
+    var name by rememberSaveable(city.cityId) { mutableStateOf(city.name) }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -922,8 +1050,8 @@ private fun AddTransportDialog(
     onConfirm: (TransportMode, String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selected by remember { mutableStateOf(TransportMode.BUS) }
-    var line by remember { mutableStateOf("") }
+    var selected by rememberSaveable { mutableStateOf(TransportMode.BUS) }
+    var line by rememberSaveable { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,

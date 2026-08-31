@@ -4,6 +4,7 @@ import android.net.Uri
 import com.example.progmob_progetto_melluso.core.GeoUtils
 import java.io.File
 import com.example.progmob_progetto_melluso.data.dao.PoiDao
+import com.example.progmob_progetto_melluso.data.dao.StepDailySummaryDao
 import com.example.progmob_progetto_melluso.data.dao.TravelCityDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.map
  * @param travelMediaDao DAO for photos/videos.
  * @param travelCityDao DAO for detected destinations.
  * @param travelPoiVisitDao DAO for POI visits.
+ * @param stepDailySummaryDao DAO for the per-day pedometer totals of a travel.
  * @param travelTransportDao DAO for the reported transport segments.
  * @param pathPointDao DAO for the recorded path.
  * @param poiDao DAO for the POIs (scores and backfill detection).
@@ -66,6 +68,7 @@ class TravelJournalRepositoryImpl(
     private val travelMediaDao: TravelMediaDao,
     private val travelCityDao: TravelCityDao,
     private val travelPoiVisitDao: TravelPoiVisitDao,
+    private val stepDailySummaryDao: StepDailySummaryDao,
     private val travelTransportDao: TravelTransportDao,
     private val pathPointDao: TravelPathPointDao,
     private val poiDao: PoiDao,
@@ -95,6 +98,12 @@ class TravelJournalRepositoryImpl(
             }
         )
     }
+
+    override fun observeTravelSteps(travelId: Long): Flow<Long> =
+        stepDailySummaryDao.totalStepsForTravel(travelId)
+
+    override fun observeTravelDistance(travelId: Long): Flow<Double> =
+        stepDailySummaryDao.totalDistanceForTravel(travelId)
 
     override fun observeTravelDetails(travelId: Long): Flow<TravelJournal?> =
         travelDao.travelById(travelId).flatMapLatest { travel ->
@@ -164,9 +173,14 @@ class TravelJournalRepositoryImpl(
                     }
                 }
 
+                // Pedometer totals of this travel (0 for trips recorded before
+                // the feature or without a step sensor on the device).
+                val stepsUi = stepDailySummaryDao.totalStepsForTravel(travelId)
+                val distanceUi = stepDailySummaryDao.totalDistanceForTravel(travelId)
+
                 // combine() has typed overloads up to five flows, so the five
                 // existing streams build the journal and the path + transports
-                // are merged in a second (nested) combine.
+                // + pedometer totals are merged in a second (nested) combine.
                 combine(
                     combine(mediaUi, citiesUi, visitsUi, poisUi, myVotesUi) { media, cities, visits, pois, myVotes ->
                         val scoreByPoi = pois.associateBy { it.id }
@@ -190,9 +204,16 @@ class TravelJournalRepositoryImpl(
                         )
                     },
                     pathUi,
-                    transportsUi
-                ) { journal, path, transports ->
-                    journal.copy(pathPoints = path, transports = transports)
+                    transportsUi,
+                    stepsUi,
+                    distanceUi
+                ) { journal, path, transports, steps, distance ->
+                    journal.copy(
+                        pathPoints = path,
+                        transports = transports,
+                        steps = steps,
+                        distanceMeters = distance
+                    )
                 }
             }
         }

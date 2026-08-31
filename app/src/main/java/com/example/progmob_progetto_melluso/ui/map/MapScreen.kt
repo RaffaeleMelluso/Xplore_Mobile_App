@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -31,11 +33,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ThumbUp
@@ -51,6 +56,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -146,7 +153,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
             MapViewModelFactory(
                 mapRepository = AppContainer.mapRepository(context),
                 poiRepository = AppContainer.poiRepository(context),
-                poiVoteRepository = AppContainer.poiVoteRepository(context)
+                poiVoteRepository = AppContainer.poiVoteRepository(context),
+                stepRepository = AppContainer.stepRepository(context)
             )
         }
     )
@@ -157,23 +165,47 @@ fun MapScreen(modifier: Modifier = Modifier) {
     val lastCamera = remember { mutableStateOf<LatLng?>(null) }
     var recenterTick by remember { mutableIntStateOf(0) }
 
+    // Transient UI state is rememberSaveable so a rotation (activity
+    // recreation) keeps the user exactly where they were — selected tab, open
+    // dialog, picked map point — instead of resetting the map and cancelling
+    // any field being edited.
+
     // Whether the travel-filter bottom sheet is open (via button).
-    var showTravelFilter by remember { mutableStateOf(false) }
+    var showTravelFilter by rememberSaveable { mutableStateOf(false) }
 
     // Whether the nearby-travelers menu (hide/show by name) is open.
-    var showNearbyTravelers by remember { mutableStateOf(false) }
+    var showNearbyTravelers by rememberSaveable { mutableStateOf(false) }
 
     // Whether the user is choosing ON THE MAP where to place the new POI
     // (user reporting, spec §3.3): any map tap then places the point.
-    var pickingPoiLocation by remember { mutableStateOf(false) }
+    var pickingPoiLocation by rememberSaveable { mutableStateOf(false) }
 
-    // The map point the user tapped while choosing the POI location; non-null
-    // opens the creation form prefilled with those coordinates.
-    var pickedPoiLocation by remember { mutableStateOf<LatLng?>(null) }
+    // The map point the user tapped while choosing the POI location; stored as
+    // plain doubles (LatLng is not saveable across process/config changes) and
+    // reconstructed here. Non-null opens the creation form prefilled.
+    var pickedPoiLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var pickedPoiLon by rememberSaveable { mutableStateOf<Double?>(null) }
+    val pickedPoiLocation: LatLng? =
+        pickedPoiLat?.let { lat -> pickedPoiLon?.let { lon -> LatLng(lat, lon) } }
 
-    // Selected marker info window: the tapped POI or ghost, shown as a card.
-    var selectedPoi by remember { mutableStateOf<PoiEntity?>(null) }
+    // Selected marker info window: the tapped POI (by id, re-resolved from the
+    // reactive list) or ghost (ephemeral, kept in memory), shown as a sheet.
+    var selectedPoiId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val selectedPoi: PoiEntity? =
+        selectedPoiId?.let { id -> uiState.pois.firstOrNull { it.id == id } }
     var selectedGhost by remember { mutableStateOf<Ghost?>(null) }
+
+    // Trip-info screen (live timer/steps/distance) opened by the top-right button.
+    var showTripInfo by rememberSaveable { mutableStateOf(false) }
+
+    // Whether the compact map-actions menu (three dots, bottom-left) is expanded.
+    var showMapActions by rememberSaveable { mutableStateOf(false) }
+
+    // Drives the geofence auto-opened sheet. Plain remember: it resets when
+    // the map screen leaves composition; the per-trip "already shown" POI set
+    // lives in the ViewModel, so switching tab and back does not re-open a
+    // place that was already shown.
+    var autoSheetVisible by remember { mutableStateOf(false) }
 
     // Location state is re-checked on every ON_RESUME (returning from the
     // system settings) AND polled while the screen is composed: enabling GPS
@@ -229,7 +261,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
                         // and consumes the gesture (no card opens).
                         map.addOnMapClickListener { latLng ->
                             if (pickingPoiLocation) {
-                                pickedPoiLocation = latLng
+                                pickedPoiLat = latLng.latitude
+                                pickedPoiLon = latLng.longitude
                                 return@addOnMapClickListener true
                             }
                             val poi = overlaysRef.value?.poiAt(latLng)
@@ -238,13 +271,13 @@ fun MapScreen(modifier: Modifier = Modifier) {
                             // ghost's path opens the same card as its marker.
                             val ghostViaPath = overlaysRef.value?.ghostAtPath(latLng)
                             if (poi != null) {
-                                selectedPoi = poi
+                                selectedPoiId = poi.id
                                 selectedGhost = null
                             } else if (ghost != null || ghostViaPath != null) {
                                 selectedGhost = ghost ?: ghostViaPath
-                                selectedPoi = null
+                                selectedPoiId = null
                             } else {
-                                selectedPoi = null
+                                selectedPoiId = null
                                 selectedGhost = null
                             }
                             false
@@ -322,27 +355,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
             gpsEnabled = gpsEnabled
         )
 
-        // Demo POI reporting (spec §3.3): the FAB starts/cancels the location
-        // picking on the map; the form then opens on the chosen point and the
-        // new POI joins the same pool as the seeded ones (map + trends).
-        if (mapReady) {
-            MapActionFab(
-                onClick = {
-                    if (pickingPoiLocation) {
-                        pickingPoiLocation = false
-                        pickedPoiLocation = null
-                    } else {
-                        pickingPoiLocation = true
-                        pickedPoiLocation = null
-                    }
-                },
-                icon = if (pickingPoiLocation) Icons.Filled.Close else Icons.Filled.Add,
-                contentDescription = stringResource(R.string.map_add_poi_button),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 160.dp)
-            )
-        }
 
         // Picking banner: tells the user what to do and lets them cancel.
         if (pickingPoiLocation) {
@@ -367,7 +379,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
                     )
                     TextButton(onClick = {
                         pickingPoiLocation = false
-                        pickedPoiLocation = null
+                        pickedPoiLat = null
+                        pickedPoiLon = null
                     }) {
                         Text(stringResource(R.string.add_poi_cancel))
                     }
@@ -375,18 +388,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // Travel filter: a button opens a bottom sheet listing the trips; the
-        // chosen one is drawn alone on the map (one trip at a time).
-        if (mapReady) {
-            MapActionFab(
-                onClick = { showTravelFilter = true },
-                icon = Icons.AutoMirrored.Filled.List,
-                contentDescription = stringResource(R.string.map_filter_trips_button),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 88.dp)
-            )
-        }
         if (showTravelFilter) {
             TravelFilterSheet(
                 travels = uiState.travels,
@@ -409,29 +410,81 @@ fun MapScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // Nearby-travelers menu: the FAB opens a sheet listing the travelers
-        // by name; tapping a name hides/restores that traveler on the map. The
-        // badge reports how many are currently hidden.
+        // Map actions: ONE trigger (three dots, bottom-left) anchored at the
+        // bottom, in line with the recenter button. Tapping it expands a column
+        // of labeled pills (Add POI, My trips, Nearby travelers) ABOVE the
+        // trigger; the trigger itself never moves. The badge reports how many
+        // travelers are currently hidden.
         if (mapReady) {
-            Box(
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(16.dp)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.Start
             ) {
-                MapActionFab(
-                    onClick = { showNearbyTravelers = true },
-                    icon = Icons.Filled.Person,
-                    contentDescription = stringResource(R.string.map_nearby_travelers_title)
-                )
-                if (uiState.hiddenGhostIds.isNotEmpty()) {
-                    Badge(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 10.dp, y = (-10).dp),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ) {
-                        Text(text = uiState.hiddenGhostIds.size.toString())
+                // The three actions, expanding ABOVE the trigger: they are
+                // inserted before it in the column, so the FAB stays anchored
+                // at the bottom.
+                if (showMapActions) {
+                    // Add POI (spec §3.3): starts/cancels the location picking
+                    // on the map; the form opens on the chosen point and the
+                    // POI joins the shared pool.
+                    MapActionPill(
+                        icon = if (pickingPoiLocation) Icons.Filled.Close else Icons.Filled.Add,
+                        label = stringResource(
+                            if (pickingPoiLocation) R.string.map_add_poi_cancel_label else R.string.map_add_poi_label
+                        ),
+                        onClick = {
+                            if (pickingPoiLocation) {
+                                pickingPoiLocation = false
+                                pickedPoiLat = null
+                                pickedPoiLon = null
+                            } else {
+                                pickingPoiLocation = true
+                                pickedPoiLat = null
+                                pickedPoiLon = null
+                            }
+                            showMapActions = false
+                        }
+                    )
+                    // My trips: opens the sheet listing the trips, one at a
+                    // time on the map.
+                    MapActionPill(
+                        icon = Icons.AutoMirrored.Filled.List,
+                        label = stringResource(R.string.map_my_trips_label),
+                        onClick = {
+                            showTravelFilter = true
+                            showMapActions = false
+                        }
+                    )
+                    // Nearby travelers: opens the sheet listing the travelers
+                    // by name to hide/restore them one by one.
+                    MapActionPill(
+                        icon = Icons.Filled.Person,
+                        label = stringResource(R.string.map_nearby_travelers_title),
+                        onClick = {
+                            showNearbyTravelers = true
+                            showMapActions = false
+                        }
+                    )
+                }
+                Box {
+                    MapActionFab(
+                        onClick = { showMapActions = !showMapActions },
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = stringResource(R.string.map_actions_button)
+                    )
+                    if (uiState.hiddenGhostIds.isNotEmpty()) {
+                        Badge(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 10.dp, y = (-10).dp),
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ) {
+                            Text(text = uiState.hiddenGhostIds.size.toString())
+                        }
                     }
                 }
             }
@@ -461,11 +514,13 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 initialLon = picked.longitude,
                 onConfirm = { poi ->
                     viewModel.addPoi(poi)
-                    pickedPoiLocation = null
+                    pickedPoiLat = null
+                    pickedPoiLon = null
                     pickingPoiLocation = false
                 },
                 onDismiss = {
-                    pickedPoiLocation = null
+                    pickedPoiLat = null
+                    pickedPoiLon = null
                     pickingPoiLocation = false
                 }
             )
@@ -475,76 +530,61 @@ fun MapScreen(modifier: Modifier = Modifier) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
 
-        // Info card for the tapped POI or ghost. The POI card carries the same
-        // up/down votes as the journal and the trends page (shared engine), so
-        // a vote here is reflected everywhere.
+        // POI details as a LARGE bottom sheet (about twice the old top card):
+        // photo, name, description and votes in a readable layout. It opens
+        // when a marker is tapped AND automatically when the geofencing puts
+        // the user inside a POI radius (spec §7.3); the shared vote engine
+        // keeps the score in sync with the journal and the trends page.
         val poi = selectedPoi
-        if (poi != null) {
-            // The live POI row: after voting, `pois` re-emits with the updated
-            // cached score, so the score shown in the card never goes stale.
-            val livePoi = uiState.pois.firstOrNull { it.id == poi.id } ?: poi
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                shadowElevation = 4.dp
-            ) {
-                Column {
-                    // Real photo of the place: the bundled drawable for the
-                    // demo POIs, the user's gallery photo for the ones they
-                    // added (themed placeholder behind while decoding or when
-                    // the POI has no photo).
-                    PoiImage(
-                        imageResName = livePoi.imageResName,
-                        imageUri = livePoi.imageUri,
-                        contentDescription = livePoi.title,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    )
-                    Row(
-                        modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = livePoi.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            val subtitle = listOfNotNull(livePoi.category, livePoi.description).joinToString(" · ")
-                            if (subtitle.isNotBlank()) {
-                                Text(
-                                    text = subtitle,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        IconButton(onClick = { selectedPoi = null; selectedGhost = null }) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = stringResource(R.string.map_close_info)
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PoiVoteButtons(
-                            poiId = livePoi.id,
-                            score = livePoi.votes,
-                            myVote = uiState.poiVotes[livePoi.id] ?: 0,
-                            onVotePoi = { id, voteValue -> viewModel.votePoi(id, voteValue) }
-                        )
-                    }
+        val nearby = uiState.nearbyPoi
+
+        // Geofence auto-open, shown ONLY when the map is usable (permission +
+        // GPS on), AFTER a 5-second grace so the user orients on entering the
+        // app or enabling location, and ONCE PER TRIP: the "already shown" set
+        // lives in the ViewModel (survives tab switches), so changing tab and
+        // coming back does NOT re-open a seen POI.
+        val inFence = mapReady && poi == null && selectedGhost == null && nearby != null
+
+        LaunchedEffect(nearby?.id, mapReady) {
+            if (!inFence || nearby == null || nearby.id in uiState.shownGeofencePoiIds) {
+                autoSheetVisible = false
+            } else {
+                autoSheetVisible = false
+                delay(5_000)
+                // Re-check after the wait: the user may have navigated away or
+                // selected another marker during the grace period.
+                if (nearby != null && nearby.id !in uiState.shownGeofencePoiIds) {
+                    viewModel.markGeofenceShown(nearby.id)
+                    autoSheetVisible = true
                 }
             }
+        }
+
+        val autoPoi = if (
+            autoSheetVisible && inFence && poi == null && selectedGhost == null && nearby != null
+        ) nearby else null
+        val shownPoi = poi ?: autoPoi
+        if (shownPoi != null) {
+            // The live POI row: after voting, `pois` re-emits with the updated
+            // cached score, so the score shown in the sheet never goes stale.
+            val livePoi = uiState.pois.firstOrNull { it.id == shownPoi.id } ?: shownPoi
+            // Voting is reserved to the POI you are actually NEAR (the geofence
+            // one): a place tapped from far away opens read-only, exactly like
+            // the trends page, so you cannot vote somewhere you never visited.
+            val canVote = livePoi.id == uiState.nearbyPoi?.id
+            PoiDetailSheet(
+                poi = livePoi,
+                myVote = uiState.poiVotes[livePoi.id] ?: 0,
+                canVote = canVote,
+                onVotePoi = { id, voteValue -> viewModel.votePoi(id, voteValue) },
+                onDismiss = {
+                    if (poi != null) selectedPoiId = null
+                    if (autoPoi != null) {
+                        viewModel.markGeofenceShown(autoPoi.id)
+                        autoSheetVisible = false
+                    }
+                }
+            )
         }
 
         // Specialized card for a tapped ghost: reuses the journal media gallery
@@ -571,6 +611,40 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(16.dp)
+            )
+        }
+
+        // Trip-info button (top-right): opens the live screen with the trip
+        // timer, the pedometer steps and the distance in km. Small and flat so
+        // it never competes with the map content.
+        if (mapReady) {
+            Surface(
+                onClick = { showTripInfo = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(16.dp)
+                    .size(40.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                contentColor = MaterialTheme.colorScheme.primary,
+                shadowElevation = 2.dp
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = stringResource(R.string.map_trip_info_button),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+        if (showTripInfo) {
+            TripInfoOverlay(
+                activeTravel = uiState.travels.firstOrNull { it.endUtcMillis == null },
+                steps = uiState.liveSteps,
+                distanceMeters = uiState.liveDistanceMeters,
+                onDismiss = { showTripInfo = false }
             )
         }
 
@@ -605,6 +679,269 @@ fun MapScreen(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * Large bottom sheet with the details of a POI (geofencing sheet, spec §7.3).
+ *
+ * How it works: a [ModalBottomSheet] (about twice the size of the old top
+ * card) showing the real photo, the name, the category/city, a readable
+ * description and the shared up/down votes, in the app's surface style. It
+ * opens from a marker tap AND automatically when the user enters the POI
+ * geofence; dragging it down or tapping the X dismisses it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PoiDetailSheet(
+    poi: PoiEntity,
+    myVote: Int,
+    canVote: Boolean,
+    onVotePoi: (Long, Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp)
+        ) {
+            // Real photo of the place: the bundled drawable for the demo POIs,
+            // the user's gallery photo for the ones they added.
+            PoiImage(
+                imageResName = poi.imageResName,
+                imageUri = poi.imageUri,
+                contentDescription = poi.title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+            )
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = poi.title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        val subtitle = listOfNotNull(poi.category, poi.city).joinToString(" · ")
+                        if (subtitle.isNotBlank()) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.map_close_info)
+                        )
+                    }
+                }
+                if (!poi.description.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = poi.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                if (canVote) {
+                    // You are inside the POI geofence: the shared vote engine
+                    // is enabled (same rules as the journal).
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.map_poi_votes_label),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        PoiVoteButtons(
+                            poiId = poi.id,
+                            score = poi.votes,
+                            myVote = myVote,
+                            onVotePoi = onVotePoi
+                        )
+                    }
+                } else {
+                    // Tapped from far away: the score is shown READ-ONLY (like
+                    // the trends page and the ghost cards) — you can only vote
+                    // a place you are actually close to.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.map_poi_votes_label),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        GhostVote(score = poi.votes, myVote = myVote)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.map_poi_vote_nearby_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Full-screen overlay of the map section with the LIVE trip info.
+ *
+ * How it works: while the active travel is ongoing a [LaunchedEffect] ticks
+ * every second, so the timer updates in real time; the steps and the distance
+ * come from the shared pedometer tables (live flows from [MapViewModel]). With
+ * no active travel the timer is paused at 00:00 and a hint is shown.
+ */
+@Composable
+private fun TripInfoOverlay(
+    activeTravel: TravelEntity?,
+    steps: Long,
+    distanceMeters: Double,
+    onDismiss: () -> Unit
+) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    val ongoing = activeTravel != null
+    LaunchedEffect(ongoing) {
+        if (ongoing) {
+            while (true) {
+                delay(1_000L)
+                now = System.currentTimeMillis()
+            }
+        }
+    }
+
+    val start = activeTravel?.startUtcMillis
+    val durationMillis = when {
+        start == null -> 0L
+        activeTravel?.endUtcMillis != null -> activeTravel.endUtcMillis - start
+        else -> now - start
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.map_trip_info_back)
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.map_trip_info_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.map_trip_info_timer_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = formatTripDuration(durationMillis),
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(40.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                ) {
+                    TripInfoStat(
+                        label = stringResource(R.string.stat_steps),
+                        value = formatTripCount(steps),
+                        modifier = Modifier.weight(1f)
+                    )
+                    TripInfoStat(
+                        label = stringResource(R.string.stat_distance),
+                        value = formatTripKm(distanceMeters),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (activeTravel == null) {
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        text = stringResource(R.string.map_trip_info_no_travel),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One live value + label column of the trip-info screen. */
+@Composable
+private fun TripInfoStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Formats a live/closed trip duration as "Xh Ym Zs". */
+private fun formatTripDuration(millis: Long): String {
+    val totalSeconds = (millis / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return "%02d:%02d:%02d".format(hours, minutes, seconds)
+}
+
+/** Formats a step count with thousands separators. */
+private fun formatTripCount(value: Long): String =
+    try {
+        java.text.NumberFormat.getIntegerInstance().format(value)
+    } catch (_: Exception) {
+        value.toString()
+    }
+
+/** Formats meters as km (one decimal) or meters below 1 km. */
+private fun formatTripKm(meters: Double): String =
+    if (meters >= 1_000.0) "%.1f km".format(meters / 1_000.0).replace('.', ',')
+    else "${meters.toInt()} m"
 
 /**
  * Journal-like card shown when a ghost marker is tapped.
@@ -1144,6 +1481,41 @@ private fun MapActionFab(
         contentColor = MaterialTheme.colorScheme.primary
     ) {
         Icon(imageVector = icon, contentDescription = contentDescription)
+    }
+}
+
+/**
+ * One labeled action pill of the expanding map-actions menu: icon + text in a
+ * rounded container, same visual family as the trigger FAB, so the three
+ * actions (Add POI, My trips, Nearby travelers) read as one group.
+ */
+@Composable
+private fun MapActionPill(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.primary,
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 

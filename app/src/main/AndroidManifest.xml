@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <!-- The camera is optional: capture is delegated to the system camera app. -->
     <uses-feature
@@ -40,11 +41,6 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
-        <!--
-            Exposes the app's private media files as content:// URIs so the
-            system video player can open them (file:// URIs are blocked across
-            apps since Android 7).
-        -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

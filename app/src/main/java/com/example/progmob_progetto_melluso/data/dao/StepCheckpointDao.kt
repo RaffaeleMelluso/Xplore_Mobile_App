@@ -20,4 +20,8 @@ interface StepCheckpointDao {
 
     @Query("SELECT * FROM step_checkpoints WHERE travelId = :travelId LIMIT 1")
     fun checkpointForTravel(travelId: Long): Flow<StepCheckpointEntity?>
+
+    /** One-shot variant used by the pedometer to resume after a restart. */
+    @Query("SELECT * FROM step_checkpoints WHERE travelId = :travelId LIMIT 1")
+    suspend fun checkpointForTravelOnce(travelId: Long): StepCheckpointEntity?
 }

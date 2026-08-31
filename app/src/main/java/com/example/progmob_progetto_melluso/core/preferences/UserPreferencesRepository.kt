@@ -15,7 +15,7 @@ import java.io.IOException
 
 /**
  * Single preferences DataStore instance for the app, backed by
- * `user_preferences.preferences_pb` on disk.
+ * `user_preferences.preferences_pb on disk.
  */
 private val Context.userPreferencesStore: DataStore<Preferences> by preferencesDataStore(
     name = "user_preferences"
@@ -50,7 +50,10 @@ class UserPreferencesRepository(
             UserPreferences(
                 anonymous = prefs[anonymousKey()] ?: false,
                 showTravelPaths = prefs[showTravelPathsKey()] ?: true,
-                avatarUri = prefs[avatarKey()]
+                avatarUri = prefs[avatarKey()],
+                themeMode = prefs[themeModeKey()]?.let { value ->
+                    ThemeMode.entries.firstOrNull { it.name == value }
+                } ?: ThemeMode.SYSTEM
             )
         }
 
@@ -64,6 +67,11 @@ class UserPreferencesRepository(
         store.edit { it[showTravelPathsKey()] = value }
     }
 
+    /** Sets the app theme mode preference and persists it (per user). */
+    suspend fun setThemeMode(mode: ThemeMode) {
+        store.edit { it[themeModeKey()] = mode.name }
+    }
+
     /** Stores the local file URI of the avatar (null removes it, per user). */
     suspend fun setAvatarUri(uri: String?) {
         store.edit { prefs ->
@@ -74,13 +82,27 @@ class UserPreferencesRepository(
     private fun anonymousKey() = booleanPreferencesKey(KEY_PREFIX_ANONYMOUS + userIdProvider())
     private fun showTravelPathsKey() = booleanPreferencesKey(KEY_PREFIX_SHOW_PATHS + userIdProvider())
     private fun avatarKey() = stringPreferencesKey(KEY_PREFIX_AVATAR + userIdProvider())
+    private fun themeModeKey() = stringPreferencesKey(KEY_PREFIX_THEME + userIdProvider())
 
-    private companion object {
-        /** Per-user key prefixes; the uid is appended at access time. */
-        const val KEY_PREFIX_ANONYMOUS = "anonymous_mode_"
-        const val KEY_PREFIX_SHOW_PATHS = "show_travel_paths_"
-        const val KEY_PREFIX_AVATAR = "avatar_uri_"
+    private companion object {    /** Per-user key prefixes; the uid is appended at access time. */
+    const val KEY_PREFIX_ANONYMOUS = "anonymous_mode_"
+    const val KEY_PREFIX_SHOW_PATHS = "show_travel_paths_"
+    const val KEY_PREFIX_AVATAR = "avatar_uri_"
+    const val KEY_PREFIX_THEME = "theme_mode_"
     }
+}
+
+/**
+ * The application theme the user wants.
+ *
+ * @property SYSTEM follow the system night/day setting.
+ * @property LIGHT force the light (day) theme.
+ * @property DARK force the dark (night) theme.
+ */
+enum class ThemeMode {
+    SYSTEM,
+    LIGHT,
+    DARK
 }
 
 /**
@@ -89,9 +111,11 @@ class UserPreferencesRepository(
  * @param anonymous whether the user wants to appear anonymous to others.
  * @param showTravelPaths whether the user's travel paths are visible to others.
  * @param avatarUri local file URI of the profile picture, or null for none.
+ * @param themeMode the app theme chosen by the user (system by default).
  */
 data class UserPreferences(
     val anonymous: Boolean = false,
     val showTravelPaths: Boolean = true,
-    val avatarUri: String? = null
+    val avatarUri: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 )
