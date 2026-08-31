@@ -9,6 +9,8 @@ import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -34,6 +36,10 @@ import kotlinx.coroutines.sync.withLock
  * @param timeZoneIdProvider Supplies the reference timezone stored on each
  *   travel, used for correct day bucketing when the user crosses time zones.
  * @param clock Supplies "now" in UTC millis; injectable for deterministic tests.
+ * @param userIdProvider Supplies the signed-in user id (Firebase uid) that
+ *   owns the travels: every travel is stamped and every query is scoped to it,
+ *   so switching account shows an empty journal instead of the previous
+ *   user's data.
  */
 class TravelRepositoryImpl(
     private val travelDao: TravelDao,
@@ -42,7 +48,8 @@ class TravelRepositoryImpl(
     private val travelPoiVisitDao: TravelPoiVisitDao,
     private val config: TravelConfig = TravelConfig(),
     private val timeZoneIdProvider: () -> String = { "UTC" },
-    private val clock: () -> Long = { System.currentTimeMillis() }
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    private val userIdProvider: () -> String = { "local-user" }
 ) : TravelRepository {
 
     // Location updates can arrive concurrently (e.g. from the foreground
@@ -55,26 +62,38 @@ class TravelRepositoryImpl(
     private var anchorPoint: TravelPathPointEntity? = null
     private var lastPoint: TravelPathPointEntity? = null
 
-    override fun observeActiveTravel(): Flow<TravelEntity?> = travelDao.activeTravel()
+    override fun observeActiveTravel(): Flow<TravelEntity?> = flow {
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        emitAll(travelDao.activeTravelForUser(userId))
+    }
 
-    override fun observeTravels(): Flow<List<TravelEntity>> = travelDao.allTravels()
+    override fun observeTravels(): Flow<List<TravelEntity>> = flow {
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        emitAll(travelDao.allTravelsForUser(userId))
+    }
 
     override fun observePathPoints(travelId: Long): Flow<List<TravelPathPointEntity>> =
         pathPointDao.pointsForTravel(travelId)
 
     override suspend fun startTravel(): Long = mutex.withLock {
         // Single-active-travel invariant: reuse the running travel if present.
-        travelDao.activeTravelOnce()?.let { active ->
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        travelDao.activeTravelForUserOnce(userId)?.let { active ->
             loadState(active.id)
             return@withLock active.id
         }
-        val id = createActiveTravel(clock()).id
+        val id = createActiveTravel(clock(), userId).id
         loadState(id)
         id
     }
 
     override suspend fun stopTravel(): Boolean = mutex.withLock {
-        val active = travelDao.activeTravelOnce() ?: return@withLock false
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        val active = travelDao.activeTravelForUserOnce(userId) ?: return@withLock false
         travelDao.update(active.copy(endUtcMillis = clock()))
         resetState()
         true
@@ -170,19 +189,22 @@ class TravelRepositoryImpl(
         accuracyMeters = sample.accuracyMeters
     )
 
-    /** Returns the active travel, creating one when none exists yet. */
+    /** Returns the active travel of the current user, creating one when none exists. */
     private suspend fun activeTravelOrCreate(startUtcMillis: Long): TravelEntity {
-        travelDao.activeTravelOnce()?.let { return it }
-        return createActiveTravel(startUtcMillis)
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        travelDao.activeTravelForUserOnce(userId)?.let { return it }
+        return createActiveTravel(startUtcMillis, userId)
     }
 
-    /** Creates a new active travel and returns the persisted entity. */
-    private suspend fun createActiveTravel(startUtcMillis: Long): TravelEntity {
+    /** Creates a new active travel owned by [userId] and returns the entity. */
+    private suspend fun createActiveTravel(startUtcMillis: Long, userId: String): TravelEntity {
         val travel = TravelEntity(
             startUtcMillis = startUtcMillis,
             endUtcMillis = null,
             travelTimeZoneId = timeZoneIdProvider(),
-            title = null
+            title = null,
+            userId = userId
         )
         return travel.copy(id = travelDao.insert(travel))
     }

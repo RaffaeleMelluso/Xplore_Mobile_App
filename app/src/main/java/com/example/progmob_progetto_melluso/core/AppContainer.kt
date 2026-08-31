@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.progmob_progetto_melluso.auth.AuthRepository
 import com.example.progmob_progetto_melluso.auth.FirebaseAuthRepository
+import com.example.progmob_progetto_melluso.core.preferences.UserPreferencesRepository
 import com.example.progmob_progetto_melluso.data.database.AppDatabase
 import com.example.progmob_progetto_melluso.journal.TravelJournalRepository
 import com.example.progmob_progetto_melluso.journal.TravelJournalRepositoryImpl
@@ -20,6 +21,7 @@ import com.example.progmob_progetto_melluso.travel.TravelCityDetector
 import com.example.progmob_progetto_melluso.travel.TravelRepository
 import com.example.progmob_progetto_melluso.travel.TravelRepositoryImpl
 import com.example.progmob_progetto_melluso.trend.TrendRepository
+import com.example.progmob_progetto_melluso.data.dao.StatsDao
 import com.example.progmob_progetto_melluso.trend.TrendRepositoryImpl
 import com.google.firebase.auth.FirebaseAuth
 import java.util.TimeZone
@@ -40,7 +42,8 @@ object AppContainer {
                     AppDatabase.MIGRATION_6_7,
                     AppDatabase.MIGRATION_7_8,
                     AppDatabase.MIGRATION_8_9,
-                    AppDatabase.MIGRATION_9_10
+                    AppDatabase.MIGRATION_9_10,
+                    AppDatabase.MIGRATION_10_11
                 )
                 .build()
                 .also { database = it }
@@ -94,7 +97,8 @@ object AppContainer {
         )
     }
 
-    /** Travel repository wired to the Room database and the device timezone. */
+    /** Travel repository wired to the Room database, the device timezone and
+     * the signed-in user (every travel is owned and scoped by it). */
     fun travelRepository(context: Context): TravelRepository {
         val db = database(context)
         return TravelRepositoryImpl(
@@ -102,7 +106,8 @@ object AppContainer {
             pathPointDao = db.travelPathPointDao(),
             poiDao = db.poiDao(),
             travelPoiVisitDao = db.travelPoiVisitDao(),
-            timeZoneIdProvider = { TimeZone.getDefault().id }
+            timeZoneIdProvider = { TimeZone.getDefault().id },
+            userIdProvider = { currentUserId() }
         )
     }
 
@@ -118,9 +123,24 @@ object AppContainer {
             travelCityDao = db.travelCityDao(),
             travelRepository = travelRepository(context),
             ghostSimulator = GhostFactory(),
-            poiSeed = DemoPoiSeed.all
+            poiSeed = DemoPoiSeed.all,
+            userIdProvider = { currentUserId() }
         )
     }
+
+    /**
+     * User preferences backed by Jetpack DataStore (spec §5.4): anonymous mode,
+     * path visibility and the profile avatar, all keyed per signed-in user.
+     */
+    fun userPreferencesRepository(context: Context): UserPreferencesRepository {
+        return UserPreferencesRepository(context.applicationContext) { currentUserId() }
+    }
+
+    /** Aggregate statistics DAO over the travel tables (profile stats). */
+    fun statsDao(context: Context): StatsDao = database(context).statsDao()
+
+    /** The signed-in Firebase uid, falling back to a local id when anonymous. */
+    fun currentUserId(): String = FirebaseAuth.getInstance().currentUser?.uid ?: "local-user"
 
     /**
      * Journal repository wired to the Room database and the signed-in user
@@ -139,7 +159,8 @@ object AppContainer {
             poiVoteRepository = poiVoteRepository(context),
             travelRepository = travelRepository(context),
             cityDetector = TravelCityDetector(),
-            mediaFilesDir = context.filesDir
+            mediaFilesDir = context.filesDir,
+            userIdProvider = { currentUserId() }
         )
     }
 }

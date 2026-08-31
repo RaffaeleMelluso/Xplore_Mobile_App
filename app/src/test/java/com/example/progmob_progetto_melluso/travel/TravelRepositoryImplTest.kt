@@ -57,7 +57,7 @@ class TravelRepositoryImplTest {
     fun startTravel_createsNewTravelWhenNoneActive() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(null)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(null)
         whenever(travelDao.insert(any())).thenReturn(7L)
         whenever(pathPointDao.pointsForTravelOnce(7L)).thenReturn(emptyList())
 
@@ -88,7 +88,7 @@ class TravelRepositoryImplTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
         val existing = activeTravel(3L)
-        whenever(travelDao.activeTravelOnce()).thenReturn(existing)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(3L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -105,7 +105,7 @@ class TravelRepositoryImplTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
         val existing = activeTravel(1L)
-        whenever(travelDao.activeTravelOnce()).thenReturn(existing)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(existing)
 
         val repository = TravelRepositoryImpl(
             travelDao = travelDao,
@@ -125,7 +125,7 @@ class TravelRepositoryImplTest {
     fun stopTravel_doesNothingWhenNoActiveTravel() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(null)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(null)
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
 
@@ -141,7 +141,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_autoStartsAndRecordsFirstPoint() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(null)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(null)
         whenever(travelDao.insert(any())).thenReturn(1L)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
@@ -163,7 +163,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_skipsPointBelowThresholds() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -185,7 +185,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_skipsBeforeTemporalThreshold() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -207,7 +207,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_recordsWhenBothThresholdsMet() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -228,7 +228,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_skipsInaccurateFix() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -251,7 +251,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_acceptsFirstPointEvenIfInaccurate() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -270,7 +270,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_skipsJitterWithinAccuracyBuffer() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -294,7 +294,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_skipsWhenStationary() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -315,7 +315,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_doesNotSegmentWhenMovingWithinRadius() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -345,7 +345,7 @@ class TravelRepositoryImplTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
         val existing = activeTravel(1L)
-        whenever(travelDao.activeTravelOnce()).thenReturn(existing)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
@@ -369,7 +369,7 @@ class TravelRepositoryImplTest {
     fun recordLocation_detectsEachPoiVisitOnlyOnce() = runTest {
         val travelDao = mock<TravelDao>()
         val pathPointDao = mock<TravelPathPointDao>()
-        whenever(travelDao.activeTravelOnce()).thenReturn(activeTravel(1L))
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
         val poi = PoiEntity(
@@ -416,7 +416,7 @@ class TravelRepositoryImplTest {
             // Still inside the radius (ex. 95m).
             TravelPathPointEntity(id = 2L, travelId = 1L, latitude = 0.0, longitude = 0.00085, recordedAtUtcMillis = 1_000L)
         )
-        whenever(travelDao.activeTravelOnce()).thenReturn(existing)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(storedPoints)
 
         // A fresh repository rebuilds the anchor from storage; a sample is 111m

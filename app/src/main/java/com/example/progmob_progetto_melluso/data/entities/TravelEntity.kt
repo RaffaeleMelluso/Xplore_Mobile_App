@@ -21,5 +21,9 @@ data class TravelEntity(
     // Optional free-text diary note (what the user saw, in their own words).
     val description: String? = null,
     // True when the travel should not expose the identity of the owner.
-    val isAnonymous: Boolean = false
+    val isAnonymous: Boolean = false,
+    // Owner of the travel (Firebase uid, or "local-user" when anonymous).
+    // Null only for rows created before the per-user isolation (v11) and
+    // claimed by the first user who opens the app after the update.
+    val userId: String? = null
 )

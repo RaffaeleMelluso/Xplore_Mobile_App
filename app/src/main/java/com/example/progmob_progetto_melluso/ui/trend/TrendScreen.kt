@@ -1,5 +1,6 @@
 package com.example.progmob_progetto_melluso.ui.trend
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +71,16 @@ fun TrendScreen(modifier: Modifier = Modifier) {
     // an attraction (from the ranking or from a city) or a whole city.
     val selectedPoi = uiState.poiTrends.firstOrNull { it.poiId == uiState.selectedPoiId }
     val selectedCity = uiState.cityTrends.firstOrNull { it.cityName == uiState.selectedCityName }
+
+    // System back closes the open detail and returns to where it was opened
+    // from (city -> ranking, POI -> its city/ranking). Takes priority over the
+    // Home tab-history handler while a detail is open.
+    val detailOpen = selectedPoi != null || selectedCity != null
+    if (detailOpen) {
+        BackHandler {
+            if (selectedPoi != null) viewModel.closePoiDetail() else viewModel.closeDetail()
+        }
+    }
 
     when {
         selectedPoi != null -> PoiTrendDetail(
