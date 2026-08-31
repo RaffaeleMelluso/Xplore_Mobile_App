@@ -1,5 +1,6 @@
 package com.example.progmob_progetto_melluso.ui.journal
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -82,6 +83,9 @@ fun TravelJournalScreen(modifier: Modifier = Modifier) {
 
     val selectedId = uiState.selectedTravelId
     if (selectedId != null) {
+        // System back closes the open travel detail and returns to the list
+        // (takes priority over the Home tab history handler).
+        BackHandler { viewModel.closeTravel() }
         TravelDetailScreen(
             uiState = uiState,
             onBack = viewModel::closeTravel,

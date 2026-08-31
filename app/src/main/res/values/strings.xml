@@ -163,4 +163,24 @@
     <string name="trends_detail_votes_all_time">Votes (all time)</string>
     <string name="trends_detail_my_vote_up">You voted up this place</string>
     <string name="trends_detail_my_vote_down">You voted down this place</string>
+
+    <!-- Journal media: capture from the camera -->
+    <string name="journal_take_photo">Take photo</string>
+    <string name="journal_record_video">Record video</string>
+
+    <!-- Profile (privacy + statistics) -->
+    <string name="profile_change_avatar">Change profile picture</string>
+    <string name="profile_avatar_change_hint">Tap the avatar or the name to change it from the gallery</string>
+    <string name="profile_privacy_section">Privacy</string>
+    <string name="profile_anonymous_label">Anonymous mode</string>
+    <string name="profile_anonymous_desc">Hide your identity from other travelers</string>
+    <string name="profile_show_paths_label">Show my travel paths</string>
+    <string name="profile_show_paths_desc">Allow other travelers to see your routes</string>
+    <string name="profile_stats_section">Statistics</string>
+    <string name="stat_steps">Steps</string>
+    <string name="stat_days_active">Active days</string>
+    <string name="stat_pois_visited">POIs visited</string>
+    <string name="stat_cities_visited">Cities visited</string>
+    <string name="stat_distance">Distance</string>
+    <string name="stat_travels">Travels</string>
 </resources>

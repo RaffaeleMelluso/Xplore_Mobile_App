@@ -44,4 +44,16 @@ interface TravelCityDao {
      */
     @Query("SELECT * FROM travel_cities ORDER BY travelId, arrivedAtUtcMillis ASC")
     fun allCities(): Flow<List<TravelCityEntity>>
+
+    /**
+     * All detected destinations of ONE user's travels, used by the map filter
+     * to label each trip with the cities it visited (joined through travels).
+     */
+    @Query(
+        "SELECT c.* FROM travel_cities c " +
+            "JOIN travels t ON t.id = c.travelId " +
+            "WHERE t.userId = :userId " +
+            "ORDER BY c.travelId, c.arrivedAtUtcMillis ASC"
+    )
+    fun allCitiesForUser(userId: String): Flow<List<TravelCityEntity>>
 }

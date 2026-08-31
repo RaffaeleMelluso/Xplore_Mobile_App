@@ -27,6 +27,10 @@ interface TravelDao {
     @Query("SELECT * FROM travels ORDER BY startUtcMillis DESC")
     fun allTravels(): Flow<List<TravelEntity>>
 
+    /** All travels of one user (the journal list is per-account). */
+    @Query("SELECT * FROM travels WHERE userId = :userId ORDER BY startUtcMillis DESC")
+    fun allTravelsForUser(userId: String): Flow<List<TravelEntity>>
+
     @Query("SELECT * FROM travels WHERE id = :travelId LIMIT 1")
     fun travelById(travelId: Long): Flow<TravelEntity?>
 
@@ -40,6 +44,13 @@ interface TravelDao {
      */
     @Query("SELECT * FROM travels WHERE endUtcMillis IS NOT NULL ORDER BY endUtcMillis DESC LIMIT 1")
     suspend fun mostRecentClosedTravelOnce(): TravelEntity?
+
+    /** Most recently closed travel of one user (per-account finalize). */
+    @Query(
+        "SELECT * FROM travels WHERE userId = :userId AND endUtcMillis IS NOT NULL " +
+            "ORDER BY endUtcMillis DESC LIMIT 1"
+    )
+    suspend fun mostRecentClosedTravelOnceForUser(userId: String): TravelEntity?
 
     /**
      * Deletes a travel. Everything linked to it (path points, photos, cities,
@@ -55,4 +66,20 @@ interface TravelDao {
     /** One-shot variant used inside the repository while it holds its lock. it's flowless */
     @Query("SELECT * FROM travels WHERE endUtcMillis IS NULL LIMIT 1")
     suspend fun activeTravelOnce(): TravelEntity?
+
+    /** Active travel of one user (per-account single-active invariant). */
+    @Query("SELECT * FROM travels WHERE userId = :userId AND endUtcMillis IS NULL LIMIT 1")
+    fun activeTravelForUser(userId: String): Flow<TravelEntity?>
+
+    /** One-shot variant of [activeTravelForUser]. */
+    @Query("SELECT * FROM travels WHERE userId = :userId AND endUtcMillis IS NULL LIMIT 1")
+    suspend fun activeTravelForUserOnce(userId: String): TravelEntity?
+
+    /**
+     * Adopts the travels recorded before the per-user isolation (v11) into the
+     * first user who opens the app after the update: their old data is not
+     * lost, and any later account starts with an empty journal.
+     */
+    @Query("UPDATE travels SET userId = :userId WHERE userId IS NULL")
+    suspend fun claimLegacyTravels(userId: String)
 }

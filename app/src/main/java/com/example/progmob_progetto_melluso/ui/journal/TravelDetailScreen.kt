@@ -8,7 +8,6 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +38,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.core.content.FileProvider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -271,6 +271,26 @@ private fun MediaSection(
         }
     }
 
+    // In-app camera capture: the destination already lives inside the app's
+    // private media directory (exposed by the FileProvider), so on success the
+    // file is immediately the final copy and needs no extra copy step.
+    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    val takePhotoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        val uri = pendingPhotoUri
+        pendingPhotoUri = null
+        if (success && uri != null) onAddMedia(uri.toString(), "photo")
+    }
+    var pendingVideoUri by remember { mutableStateOf<Uri?>(null) }
+    val recordVideoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CaptureVideo()
+    ) { success ->
+        val uri = pendingVideoUri
+        pendingVideoUri = null
+        if (success && uri != null) onAddMedia(uri.toString(), "video")
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = stringResource(R.string.journal_media_label),
@@ -295,25 +315,57 @@ private fun MediaSection(
                 }
             }
         }
-        Row(modifier = Modifier.padding(top = 12.dp)) {
-            OutlinedButton(
-                onClick = {
-                    photoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
+        // Media actions, centered, on two rows: add-from-gallery + take/capture
+        // on the first, add-picked-video + record on the second, so the buttons
+        // never overflow the screen.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+                ) {
+                    Text(stringResource(R.string.journal_add_photo))
                 }
-            ) {
-                Text(stringResource(R.string.journal_add_photo))
+                OutlinedButton(
+                    onClick = {
+                        cameraOutputUri(context, ".jpg")?.let { uri ->
+                            pendingPhotoUri = uri
+                            takePhotoLauncher.launch(uri)
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.journal_take_photo))
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(
-                onClick = {
-                    videoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                    )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        videoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        )
+                    }
+                ) {
+                    Text(stringResource(R.string.journal_add_video))
                 }
-            ) {
-                Text(stringResource(R.string.journal_add_video))
+                OutlinedButton(
+                    onClick = {
+                        cameraOutputUri(context, ".mp4")?.let { uri ->
+                            pendingVideoUri = uri
+                            recordVideoLauncher.launch(uri)
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.journal_record_video))
+                }
             }
         }
     }
@@ -421,6 +473,32 @@ private fun decodeThumbnail(context: Context, uri: Uri): Bitmap? {
             inJustDecodeBounds = false
         }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * Builds a content URI inside the app's private media directory where the
+ * system camera app can write the captured photo/video.
+ *
+ * How it works: the file is created (empty) under `filesDir/media` and handed
+ * to the camera via the FileProvider, which exposes exactly that directory
+ * (see `res/xml/file_paths.xml`). Because the destination already lives in the
+ * final location, the captured file is the app's own copy and no extra copy
+ * step is needed.
+ *
+ * @return a content:// URI exposed to the camera app, or null on failure.
+ */
+private fun cameraOutputUri(context: Context, extension: String): Uri? {
+    return try {
+        val dir = File(context.filesDir, MEDIA_DIR_NAME).apply { mkdirs() }
+        val file = File(dir, "media_${System.currentTimeMillis()}_camera$extension")
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
     } catch (_: Exception) {
         null
     }

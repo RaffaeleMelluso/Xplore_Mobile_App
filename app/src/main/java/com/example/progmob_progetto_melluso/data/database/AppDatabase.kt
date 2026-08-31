@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.progmob_progetto_melluso.data.dao.PoiVoteDao
+import com.example.progmob_progetto_melluso.data.dao.StatsDao
 import com.example.progmob_progetto_melluso.data.dao.StepCheckpointDao
 import com.example.progmob_progetto_melluso.data.dao.StepDailySummaryDao
 import com.example.progmob_progetto_melluso.data.dao.GhostDao
@@ -50,7 +51,7 @@ import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
         GhostEntity::class,
         TravelCityEntity::class
     ],
-    version = 10
+    version = 11
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun travelDao(): TravelDao
@@ -66,8 +67,28 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun poiDao(): PoiDao
     abstract fun ghostDao(): GhostDao
     abstract fun travelCityDao(): TravelCityDao
+    abstract fun statsDao(): StatsDao
 
     companion object {
+        /**
+         * v10 -> v11: per-user travel isolation.
+         *
+         * What it changes:
+         * - `travels.userId` (Firebase uid of the owner, null = legacy rows)
+         *   added as nullable text: journal, map and statistics are now scoped
+         *   to the signed-in user, so switching account shows an empty journal
+         *   and zeroed stats instead of the previous user's data. Legacy rows
+         *   are claimed by the first user who opens the app (TravelDao.claim
+         *   LegacyTravels), preserving old data instead of losing it.
+         *
+         * Purely additive: existing travels keep their identity.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE travels ADD COLUMN userId TEXT")
+            }
+        }
+
         /**
          * v5 -> v6: travel journal feature.
          *

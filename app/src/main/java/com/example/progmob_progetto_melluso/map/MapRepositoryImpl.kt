@@ -37,7 +37,8 @@ class MapRepositoryImpl(
     private val travelRepository: TravelRepository,
     private val ghostSimulator: GhostFactory,
     private val poiSeed: List<PoiEntity> = emptyList(),
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val userIdProvider: () -> String = { "local-user" }
 ) : MapRepository {
 
     override fun observeCurrentLocation(): Flow<LocationSample?> =
@@ -67,7 +68,8 @@ class MapRepositoryImpl(
 
     override fun observeTravels(): Flow<List<TravelEntity>> = travelRepository.observeTravels()
 
-    override fun observeTravelCities(): Flow<List<TravelCityEntity>> = travelCityDao.allCities()
+    override fun observeTravelCities(): Flow<List<TravelCityEntity>> =
+        travelCityDao.allCitiesForUser(userIdProvider())
 
     override suspend fun stopTravel(): Boolean = travelRepository.stopTravel()
 

@@ -22,7 +22,9 @@ import com.example.progmob_progetto_melluso.travel.TravelRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
@@ -55,6 +57,8 @@ import kotlinx.coroutines.flow.map
  * @param mediaFilesDir the app's filesDir, used to delete the private media
  *   copies when a photo/video is removed from the journal.
  * @param clock provides "now" in UTC millis; injectable for deterministic tests.
+ * @param userIdProvider Supplies the signed-in user id (Firebase uid): the
+ *   journal list is scoped to it, so switching account shows an empty journal.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TravelJournalRepositoryImpl(
@@ -70,21 +74,27 @@ class TravelJournalRepositoryImpl(
     private val cityDetector: TravelCityDetector = TravelCityDetector(),
     private val config: TravelConfig = TravelConfig(),
     private val mediaFilesDir: File? = null,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val userIdProvider: () -> String = { "local-user" }
 ) : TravelJournalRepository {
 
-    override fun observeJournal(): Flow<List<JournalTravel>> =
-        travelDao.allTravels().map { travels ->
-            travels.map { t ->
-                JournalTravel(
-                    travelId = t.id,
-                    title = t.title,
-                    startUtcMillis = t.startUtcMillis,
-                    endUtcMillis = t.endUtcMillis,
-                    description = t.description
-                )
+    override fun observeJournal(): Flow<List<JournalTravel>> = flow {
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        emitAll(
+            travelDao.allTravelsForUser(userId).map { travels ->
+                travels.map { t ->
+                    JournalTravel(
+                        travelId = t.id,
+                        title = t.title,
+                        startUtcMillis = t.startUtcMillis,
+                        endUtcMillis = t.endUtcMillis,
+                        description = t.description
+                    )
+                }
             }
-        }
+        )
+    }
 
     override fun observeTravelDetails(travelId: Long): Flow<TravelJournal?> =
         travelDao.travelById(travelId).flatMapLatest { travel ->
@@ -195,7 +205,9 @@ class TravelJournalRepositoryImpl(
         // any POI visit that the live recording may have missed (e.g. the app
         // was off while passing near a POI).
         if (closed) {
-            travelDao.mostRecentClosedTravelOnce()?.let { travel ->
+            val userId = userIdProvider()
+            travelDao.claimLegacyTravels(userId)
+            travelDao.mostRecentClosedTravelOnceForUser(userId)?.let { travel ->
                 detectCities(travel.id)
                 detectVisits(travel.id)
             }

@@ -1,6 +1,6 @@
 package com.example.progmob_progetto_melluso.ui.home
 
-import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,25 +24,25 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.ui.journal.TravelJournalScreen
 import com.example.progmob_progetto_melluso.ui.map.MapScreen
 import com.example.progmob_progetto_melluso.ui.poi.MyPoiScreen
+import com.example.progmob_progetto_melluso.ui.profile.ProfileScreen
 import com.example.progmob_progetto_melluso.ui.trend.TrendScreen
 
 /** Height reserved for the bottom bar (excluding the system navigation inset). */
@@ -79,12 +79,35 @@ fun HomeScreen(
     // Pure presentation state: which tab is selected. Survives configuration changes.
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
+    // Stack of previously visited tabs (indices, oldest first), stored as a
+    // comma-separated string so it survives configuration changes.
+    var history by rememberSaveable { mutableStateOf("") }
+
+    // Switching tab records the current one in the history, so the system back
+    // can return to the previously visited screen instead of exiting the app.
+    val selectTab: (HomeTab) -> Unit = { tab ->
+        val newIndex = tab.ordinal
+        if (newIndex != selectedTabIndex) {
+            history = if (history.isEmpty()) selectedTabIndex.toString() else "$history,$selectedTabIndex"
+            selectedTabIndex = newIndex
+        }
+    }
+
+    // System back with a history: go to the previous tab. Consumed only when
+    // there is history; deeper BackHandlers (a travel/trend detail) win first
+    // and close their detail, so the app also backs out of a detail smoothly.
+    BackHandler(enabled = history.isNotEmpty()) {
+        val parts = history.split(',')
+        selectedTabIndex = parts.last().toInt()
+        history = parts.dropLast(1).joinToString(",")
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
             HomeBottomBar(
                 selectedTab = HomeTab.entries[selectedTabIndex],
-                onTabSelected = { selectedTabIndex = it.ordinal }
+                onTabSelected = selectTab
             )
         }
     ) { innerPadding ->
@@ -98,7 +121,7 @@ fun HomeScreen(
                 HomeTab.TRAVEL -> TravelJournalScreen()
                 HomeTab.TRENDS -> TrendScreen()
                 HomeTab.MY_POIS -> MyPoiScreen()
-                HomeTab.PROFILE -> ProfilePlaceholder(
+                HomeTab.PROFILE -> ProfileScreen(
                     displayName = displayName,
                     email = email,
                     onSignOut = onSignOut
@@ -249,76 +272,4 @@ private enum class HomeTab(val labelRes: Int, val icon: ImageVector) {
     TRENDS(R.string.tab_trends, Icons.Filled.Star),
     MY_POIS(R.string.tab_my_pois, Icons.Filled.Place),
     PROFILE(R.string.tab_profile, Icons.Filled.Person)
-}
-
-/**
- * Minimal profile screen: identity of the signed-in user and sign out.
- *
- * How it works: shows the display name (or the email as fallback) and the
- * sign-out action. The rest of the profile features are not implemented yet.
- *
- * @param displayName display name of the signed-in user, if available.
- * @param email email of the signed-in user.
- * @param onSignOut callback invoked when the user taps "Sign out".
- */
-@Composable
-private fun ProfilePlaceholder(
-    displayName: String?,
-    email: String?,
-    onSignOut: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Person,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = displayName ?: email ?: stringResource(R.string.tab_profile),
-            style = MaterialTheme.typography.headlineSmall
-        )
-        if (email != null) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = email,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Spacer(Modifier.height(24.dp))
-        OutlinedButton(onClick = onSignOut) {
-            Text(stringResource(R.string.logout))
-        }
-        // Build identifier: lets you confirm at a glance which version is installed.
-        Spacer(Modifier.height(32.dp))
-        Text(
-            text = stringResource(R.string.app_version_label, installedVersionName()),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.outline
-        )
-    }
-}
-
-/**
- * Reads the installed version name without relying on BuildConfig.
- *
- * @return the version name (for example "1.1") or "" on failure.
- */
-@Composable
-private fun installedVersionName(): String {
-    val context = LocalContext.current
-    return try {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
-    } catch (exception: PackageManager.NameNotFoundException) {
-        ""
-    }
 }
