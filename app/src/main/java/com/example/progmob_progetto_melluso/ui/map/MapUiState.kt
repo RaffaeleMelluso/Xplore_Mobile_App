@@ -33,6 +33,18 @@ import com.example.progmob_progetto_melluso.travel.StaleReason
  * @property staleTravel the ongoing trip that looks finished (too far from
  *   its start or too old): the map asks the user whether it is still in
  *   progress before closing it. Null when nothing is stale.
+ * @property nearbyPoi the POI whose geofence the user is currently inside,
+ *   when any: the map auto-opens its bottom sheet and the tracking service
+ *   posts the near-POI notification (spec §7.3, geofencing). Null when the
+ *   user is outside every fence.
+ * @property shownGeofencePoiIds the POIs whose geofence sheet has already been
+ *   auto-opened during the CURRENT active travel: once seen they do not reopen
+ *   (switching tab and back does not re-show), reset when a new trip begins.
+ *   Kept in the ViewModel so it survives tab switches.
+ * @property liveSteps the pedometer steps of the ACTIVE travel (live), shown
+ *   by the map trip-info screen.
+ * @property liveDistanceMeters the distance in meters estimated from the
+ *   steps of the ACTIVE travel (live), shown by the map trip-info screen.
  * @property isLoading true until the first combined emission arrives.
  */
 /**
@@ -56,5 +68,9 @@ data class MapUiState(
     val travelCities: Map<Long, List<String>> = emptyMap(),
     val displayedTravelId: Long? = null,
     val staleTravel: StaleTravel? = null,
+    val nearbyPoi: PoiEntity? = null,
+    val shownGeofencePoiIds: Set<Long> = emptySet(),
+    val liveSteps: Long = 0,
+    val liveDistanceMeters: Double = 0.0,
     val isLoading: Boolean = true
 )

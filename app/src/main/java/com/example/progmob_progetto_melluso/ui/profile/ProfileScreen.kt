@@ -43,12 +43,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.core.AppContainer
+import com.example.progmob_progetto_melluso.core.preferences.ThemeMode
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -85,7 +87,10 @@ fun ProfileScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .padding(20.dp)
+            // Extra bottom room so the version line can scroll clear of the
+            // raised central Map button of the bottom bar.
+            .padding(bottom = 72.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         ProfileHeader(
@@ -103,6 +108,14 @@ fun ProfileScreen(
             showTravelPaths = uiState.showTravelPaths,
             onAnonymousChange = viewModel::setAnonymous,
             onShowTravelPathsChange = viewModel::setShowTravelPaths,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        AppearanceSection(
+            themeMode = uiState.themeMode,
+            onThemeModeChange = viewModel::setThemeMode,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -195,12 +208,6 @@ private fun ProfileHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.profile_avatar_change_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
@@ -237,6 +244,92 @@ private fun ProfileAvatar(avatarUri: String?, size: androidx.compose.ui.unit.Dp)
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+/**
+ * Lets the user pick the app theme (System / Light / Dark) with an icon per
+ * option. The chosen mode is persisted in DataStore per user and applied app
+ * wide from MainActivity. Defaults to the system night/day setting.
+ */
+@Composable
+private fun AppearanceSection(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = stringResource(R.string.profile_appearance_section),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeOption(
+                label = stringResource(R.string.theme_system),
+                drawable = R.drawable.ic_theme_system,
+                selected = themeMode == ThemeMode.SYSTEM,
+                onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
+                modifier = Modifier.weight(1f)
+            )
+            ThemeOption(
+                label = stringResource(R.string.theme_light),
+                drawable = R.drawable.ic_theme_light,
+                selected = themeMode == ThemeMode.LIGHT,
+                onClick = { onThemeModeChange(ThemeMode.LIGHT) },
+                modifier = Modifier.weight(1f)
+            )
+            ThemeOption(
+                label = stringResource(R.string.theme_dark),
+                drawable = R.drawable.ic_theme_dark,
+                selected = themeMode == ThemeMode.DARK,
+                onClick = { onThemeModeChange(ThemeMode.DARK) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/** A single tappable theme choice: icon on top, label below, highlighted when selected. */
+@Composable
+private fun ThemeOption(
+    label: String,
+    drawable: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val container = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val content = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = container,
+        contentColor = content
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                painter = painterResource(drawable),
+                contentDescription = label,
+                modifier = Modifier.size(26.dp)
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(text = label, style = MaterialTheme.typography.labelMedium)
         }
     }
 }

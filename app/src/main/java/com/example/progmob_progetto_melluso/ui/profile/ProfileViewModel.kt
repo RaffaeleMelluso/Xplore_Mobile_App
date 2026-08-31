@@ -2,6 +2,7 @@ package com.example.progmob_progetto_melluso.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.progmob_progetto_melluso.core.preferences.ThemeMode
 import com.example.progmob_progetto_melluso.core.preferences.UserPreferencesRepository
 import com.example.progmob_progetto_melluso.data.dao.StatsDao
 import java.text.SimpleDateFormat
@@ -73,6 +74,7 @@ class ProfileViewModel(
             anonymous = preferences.anonymous,
             showTravelPaths = preferences.showTravelPaths,
             avatarUri = preferences.avatarUri,
+            themeMode = preferences.themeMode,
             stats = stats
         )
     }.stateIn(
@@ -89,6 +91,11 @@ class ProfileViewModel(
     /** Toggles the travel-path visibility preference and persists it. */
     fun setShowTravelPaths(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setShowTravelPaths(enabled) }
+    }
+
+    /** Sets the app theme mode (system/light/dark) and persists it. */
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch { preferencesRepository.setThemeMode(mode) }
     }
 
     /** Updates the profile avatar to the given local file URI (null removes it). */

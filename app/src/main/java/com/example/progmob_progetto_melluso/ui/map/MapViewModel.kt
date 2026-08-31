@@ -3,9 +3,12 @@ package com.example.progmob_progetto_melluso.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.progmob_progetto_melluso.map.MapRepository
+import com.example.progmob_progetto_melluso.core.GeoUtils
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.poi.PoiRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
+import com.example.progmob_progetto_melluso.step.StepRepository
+import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelConfig
 import com.example.progmob_progetto_melluso.travel.TravelStaleness
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,6 +35,8 @@ import kotlinx.coroutines.launch
  *   immediately reach every screen (map, ghosts, trends) through Room flows.
  * @param poiVoteRepository the shared vote engine: the POI card on the map
  *   votes with the SAME rules as the journal and the trends page.
+ * @param stepRepository the pedometer totals of the active travel, shown live
+ *   by the map trip-info screen (timer, steps, distance).
  * @param config travel thresholds, including the staleness ones (how far / how
  *   old a trip can be before the user is asked whether it is still ongoing).
  * @param clock provides "now" in UTC millis; injectable for deterministic tests.
@@ -41,6 +46,7 @@ class MapViewModel(
     private val mapRepository: MapRepository,
     private val poiRepository: PoiRepository,
     private val poiVoteRepository: PoiVoteRepository,
+    private val stepRepository: StepRepository,
     private val config: TravelConfig = TravelConfig(),
     private val clock: () -> Long = System::currentTimeMillis
 ) : ViewModel() {
@@ -66,6 +72,12 @@ class MapViewModel(
     // not reappear on every emission while the same trip stays active.
     private val dismissedStaleTravelId = MutableStateFlow<Long?>(null)
 
+    // POIs whose geofence sheet was already auto-opened during the current
+    // active travel: once seen they do not reopen, even switching tab and
+    // back (the ViewModel survives the MapScreen leaving the composition).
+    // Reset when a new active travel begins.
+    private val shownGeofencePoiIds = MutableStateFlow<Set<Long>>(emptySet())
+
     // Journal travels + their detected cities, combined so the filter can
     // label each trip with the places it visited (its category).
     private val travelsAndCitiesFlow = combine(
@@ -77,6 +89,28 @@ class MapViewModel(
             .mapValues { (_, list) ->
                 list.sortedBy { it.arrivedAtUtcMillis }.map { it.name }
             }
+    }
+
+    // Geofencing: the closest POI whose fence the user is currently inside
+    // (null when outside every fence). The tracking service posts the
+    // notification on the same signal; here it drives the auto-opened POI
+    // bottom sheet on the map.
+    private val nearbyPoiFlow = combine(
+        mapRepository.observeCurrentLocation(),
+        mapRepository.observePois()
+    ) { location, pois ->
+        if (location == null || pois.isEmpty()) {
+            null
+        } else {
+            PoiProximity.near(
+                location.latitude,
+                location.longitude,
+                pois,
+                config.poiVisitRadiusMeters
+            ).minByOrNull { poi ->
+                GeoUtils.haversineMeters(location.latitude, location.longitude, poi.lat, poi.lon)
+            }
+        }
     }
 
     /**
@@ -149,6 +183,18 @@ class MapViewModel(
                 staleTravel = state.staleTravel?.takeIf { it.travelId != dismissed }
             )
         }
+        .combine(nearbyPoiFlow) { state, nearby ->
+            state.copy(nearbyPoi = nearby)
+        }
+        .combine(shownGeofencePoiIds) { state, shown ->
+            state.copy(shownGeofencePoiIds = shown)
+        }
+        .combine(stepRepository.observeActiveTravelSteps()) { state, steps ->
+            state.copy(liveSteps = steps)
+        }
+        .combine(stepRepository.observeActiveTravelDistance()) { state, distance ->
+            state.copy(liveDistanceMeters = distance)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
@@ -164,6 +210,30 @@ class MapViewModel(
             mapRepository.ensurePoiSeed()
             poiVoteRepository.ensureDemoVotes()
         }
+        // The "already shown" geofence popups belong to ONE trip: when the
+        // active travel changes (a new trip starts), a POI can be suggested
+        // again.
+        viewModelScope.launch {
+            var lastActiveTravelId: Long? = null
+            mapRepository.observeTravels().collect { travels ->
+                val activeId = travels.firstOrNull { it.endUtcMillis == null }?.id
+                if (activeId != lastActiveTravelId) {
+                    lastActiveTravelId = activeId
+                    if (shownGeofencePoiIds.value.isNotEmpty()) {
+                        shownGeofencePoiIds.value = emptySet()
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Marks a POI's geofence sheet as already shown during this trip, so it
+     * will not reopen until a new travel begins (spec §7.3, one trigger per
+     * trip for each place).
+     */
+    fun markGeofenceShown(poiId: Long) {
+        shownGeofencePoiIds.value = shownGeofencePoiIds.value + poiId
     }
 
     /**

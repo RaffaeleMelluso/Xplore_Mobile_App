@@ -2,15 +2,18 @@ package com.example.progmob_progetto_melluso
 
 import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
@@ -19,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.progmob_progetto_melluso.auth.AuthError
 import com.example.progmob_progetto_melluso.core.AppContainer
+import com.example.progmob_progetto_melluso.core.preferences.ThemeMode
 import com.example.progmob_progetto_melluso.service.TrackingService
 import com.example.progmob_progetto_melluso.ui.home.HomeScreen
 import com.example.progmob_progetto_melluso.ui.login.LoginScreen
@@ -112,23 +116,45 @@ class MainActivity : ComponentActivity() {
 
             // React to authentication changes: enter home + start tracking, or
             // stop tracking and go back to login.
+            //
+            // The navigation is guarded by the CURRENT destination: on a
+            // configuration change (rotation) this effect re-runs, and re-
+            // navigating would REPLACE the home back-stack entry, discarding
+            // its saved state (selected tab, open dialogs, edited fields).
+            // Skipping the navigate when already on the target lets the
+            // NavHost restore the previous entry with all its UI state.
             LaunchedEffect(authenticated) {
                 if (authenticated) {
                     permissionLauncher.launch(REQUIRED_PERMISSIONS)
-                    navController.navigate(ROUTE_HOME) {
-                        popUpTo(0) { inclusive = true }
-                        launchSingleTop = true
+                    if (navController.currentDestination?.route != ROUTE_HOME) {
+                        navController.navigate(ROUTE_HOME) {
+                            popUpTo(0) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 } else {
                     context.stopService(Intent(context, TrackingService::class.java))
-                    navController.navigate(ROUTE_LOGIN) {
-                        popUpTo(0) { inclusive = true }
-                        launchSingleTop = true
+                    if (navController.currentDestination?.route != ROUTE_LOGIN) {
+                        navController.navigate(ROUTE_LOGIN) {
+                            popUpTo(0) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 }
             }
 
-            ProgMob_Progetto_MellusoTheme {
+            // Theme: the user-selected mode (System/Light/Dark) is read from
+            // DataStore per user and resolved app-wide here; SYSTEM follows the
+            // device night/day setting.
+            val prefsRepository = remember { AppContainer.userPreferencesRepository(context) }
+            val userPrefs by prefsRepository.preferences.collectAsState(initial = null)
+            val isDarkTheme = when (userPrefs?.themeMode ?: ThemeMode.SYSTEM) {
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            ProgMob_Progetto_MellusoTheme(darkTheme = isDarkTheme) {
                 NavHost(
                     navController = navController,
                     startDestination = if (authenticated) ROUTE_HOME else ROUTE_LOGIN
@@ -173,11 +199,18 @@ class MainActivity : ComponentActivity() {
         private const val ROUTE_LOGIN = "login"
         private const val ROUTE_HOME = "home"
 
-        private val REQUIRED_PERMISSIONS = arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS
-        )
+        private val REQUIRED_PERMISSIONS: Array<String> by lazy {
+            buildList {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                add(Manifest.permission.POST_NOTIFICATIONS)
+                // Android 10+ gating the step sensor behind a runtime
+                // permission: without it the pedometer never counts.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    add(Manifest.permission.ACTIVITY_RECOGNITION)
+                }
+            }.toTypedArray()
+        }
 
         /**
          * Starts the foreground tracking service.

@@ -28,6 +28,20 @@ interface StepDailySummaryDao {
     )
     fun summariesForTravel(travelId: Long): Flow<List<StepDailySummaryEntity>>
 
+    /** One-shot variant used by the pedometer to accumulate into one day bucket. */
+    @Query(
+        """
+        SELECT * FROM step_daily_summaries
+        WHERE travelId = :travelId AND localDate = :localDate AND timeZoneId = :timeZoneId
+        LIMIT 1
+        """
+    )
+    suspend fun summaryForTravelAndDateOnce(
+        travelId: Long,
+        localDate: String,
+        timeZoneId: String
+    ): StepDailySummaryEntity?
+
     @Query(
         """
         SELECT COALESCE(SUM(steps), 0) FROM step_daily_summaries

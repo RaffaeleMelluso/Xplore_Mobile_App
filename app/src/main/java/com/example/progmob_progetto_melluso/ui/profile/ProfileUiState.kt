@@ -1,5 +1,7 @@
 package com.example.progmob_progetto_melluso.ui.profile
 
+import com.example.progmob_progetto_melluso.core.preferences.ThemeMode
+
 /**
  * Overall statistics of the user, aggregated across every recorded travel.
  *
@@ -30,5 +32,6 @@ data class ProfileUiState(
     val anonymous: Boolean = false,
     val showTravelPaths: Boolean = true,
     val avatarUri: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val stats: ProfileStatistics = ProfileStatistics()
 )

@@ -31,11 +31,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -119,22 +121,44 @@ fun TravelJournalScreen(modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // ONE card for the ongoing trip: always styled like "Ongoing"
+            // (primary container) with the Stop/Start button, and clickable to
+            // open the active travel. The active trip is NOT repeated in the
+            // list below (the list only shows completed trips).
             CallToActionBar(
                 activeTravel = uiState.activeTravel,
                 pending = uiState.isTravelActionPending,
+                steps = uiState.activeSteps,
+                distanceMeters = uiState.activeDistanceMeters,
                 onStart = viewModel::startTravel,
-                onStop = viewModel::stopTravel
+                onStop = viewModel::stopTravel,
+                onClick = { uiState.activeTravel?.let { viewModel.openTravel(it.travelId) } }
             )
-            if (uiState.travels.isEmpty()) {
-                EmptyJournal()
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
-                    items(uiState.travels, key = { it.travelId }) { travel ->
-                        JournalTravelCard(
-                            travel = travel,
-                            onClick = { viewModel.openTravel(travel.travelId) },
-                            onDelete = { pendingDelete = travel }
+            val closedTravels = uiState.travels.filter { it.endUtcMillis != null }
+            when {
+                uiState.travels.isEmpty() -> EmptyJournal()
+                closedTravels.isEmpty() -> {
+                    // Only the ongoing trip exists: it is the card above.
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.journal_no_completed_trips),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(closedTravels, key = { it.travelId }) { travel ->
+                            JournalTravelCard(
+                                travel = travel,
+                                onClick = { viewModel.openTravel(travel.travelId) },
+                                onDelete = { pendingDelete = travel }
+                            )
+                        }
                     }
                 }
             }
@@ -164,72 +188,160 @@ fun TravelJournalScreen(modifier: Modifier = Modifier) {
 }
 
 /**
- * Header card with the Start/Stop control for the ongoing trip.
- *
- * How it works: the active state uses the primary (teal) container to match
- * the app palette (previously the coral secondary container clashed); the
- * buttons are disabled while a start/stop request is being processed so rapid
- * taps cannot spam the action.
+ * The single ongoing-trip card: always styled like "Ongoing" (primary
+ * container) so it reads as THE active trip, with the Stop/Start button. The
+ * whole card is clickable and opens the active travel; the buttons are
+ * disabled while a start/stop request is being processed so rapid taps cannot
+ * spam the action.
  */
 @Composable
 private fun CallToActionBar(
     activeTravel: JournalTravel?,
     pending: Boolean,
+    steps: Long,
+    distanceMeters: Double,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isActive = activeTravel != null
     Surface(
+        onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(14.dp),
-        color = if (isActive) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        }
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (isActive) {
-                        stringResource(R.string.journal_ongoing)
-                    } else {
-                        stringResource(R.string.journal_my_travels)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (isActive) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    }
-                )
-                if (isActive) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = activeTravel?.title ?: stringResource(R.string.journal_untitled),
+                        text = if (isActive) {
+                            stringResource(R.string.journal_ongoing)
+                        } else {
+                            stringResource(R.string.journal_my_travels)
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        text = activeTravel?.title ?: stringResource(R.string.journal_empty_body),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
+                if (isActive) {
+                    Button(onClick = onStop, enabled = !pending) {
+                        Text(stringResource(R.string.journal_stop_travel))
+                    }
+                } else {
+                    Button(onClick = onStart, enabled = !pending) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Text(stringResource(R.string.journal_start_travel))
+                    }
+                }
             }
-            if (isActive) {
-                Button(onClick = onStop, enabled = !pending) {
-                    Text(stringResource(R.string.journal_stop_travel))
-                }
-            } else {
-                Button(onClick = onStart, enabled = !pending) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Text(stringResource(R.string.journal_start_travel))
-                }
+            // Live pedometer stats of the ongoing trip, right in the journal
+            // card — no need to open the detail (spec §3.1).
+            if (isActive && activeTravel != null) {
+                Spacer(Modifier.height(12.dp))
+                OngoingTripStats(
+                    startUtcMillis = activeTravel.startUtcMillis,
+                    steps = steps,
+                    distanceMeters = distanceMeters
+                )
             }
         }
     }
 }
+
+/**
+ * Live timer + pedometer figures of the ongoing trip, shown in the journal
+ * card: duration ticks every second, steps and distance come from the shared
+ * pedometer tables (reactive flows).
+ */
+@Composable
+private fun OngoingTripStats(
+    startUtcMillis: Long,
+    steps: Long,
+    distanceMeters: Double,
+    modifier: Modifier = Modifier
+) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000L)
+            now = System.currentTimeMillis()
+        }
+    }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OngoingStat(
+            label = stringResource(R.string.journal_stat_duration),
+            value = formatDuration((now - startUtcMillis).coerceAtLeast(0L)),
+            modifier = Modifier.weight(1f)
+        )
+        OngoingStat(
+            label = stringResource(R.string.stat_steps),
+            value = formatCount(steps),
+            modifier = Modifier.weight(1f)
+        )
+        OngoingStat(
+            label = stringResource(R.string.stat_distance),
+            value = formatKilometers(distanceMeters),
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+/** One value + label column of the ongoing-stats row. */
+@Composable
+private fun OngoingStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+        )
+    }
+}
+
+/** Formats a live duration as "Xh Ym" / "Ym" / "Xs". */
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = (millis / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m"
+        minutes > 0 -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+}
+
+/** Formats a step count with thousands separators. */
+private fun formatCount(value: Long): String =
+    try {
+        java.text.NumberFormat.getIntegerInstance().format(value)
+    } catch (_: Exception) {
+        value.toString()
+    }
+
+/** Formats meters as km (one decimal) or meters below 1 km. */
+private fun formatKilometers(meters: Double): String =
+    if (meters >= 1_000.0) "%.1f km".format(meters / 1_000.0).replace('.', ',')
+    else "${meters.toInt()} m"
 
 /** Empty-state message for a journal with no trips. */
 @Composable

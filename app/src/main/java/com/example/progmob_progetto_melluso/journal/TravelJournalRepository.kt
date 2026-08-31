@@ -58,7 +58,12 @@ data class TravelJournal(
     // The recorded path, drawn as a small route preview in the detail.
     val pathPoints: List<JournalPathPoint> = emptyList(),
     // The transport segments reported during the trip (spec §3.1).
-    val transports: List<JournalTransport> = emptyList()
+    val transports: List<JournalTransport> = emptyList(),
+    // Total steps counted by the pedometer during the trip (0 until the
+    // sensor records; the trip may predate the feature).
+    val steps: Long = 0,
+    // Total distance in meters estimated from the steps during the trip.
+    val distanceMeters: Double = 0.0
 )
 
 /**
@@ -82,6 +87,16 @@ interface TravelJournalRepository {
 
     /** Emits the mutable detail of one travel, or null when it does not exist. */
     fun observeTravelDetails(travelId: Long): Flow<TravelJournal?>
+
+    /**
+     * Live total steps of one travel from the pedometer (0 before the feature
+     * or without a step sensor). Used by the journal list to show the ongoing
+     * trip's stats without opening the detail.
+     */
+    fun observeTravelSteps(travelId: Long): Flow<Long>
+
+    /** Live total distance in meters of one travel (see [observeTravelSteps]). */
+    fun observeTravelDistance(travelId: Long): Flow<Double>
 
     /** Starts a new travel (single active travel). @return the active travel id. */
     suspend fun startTravel(): Long

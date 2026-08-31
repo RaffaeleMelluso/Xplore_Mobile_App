@@ -28,8 +28,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,13 +69,15 @@ fun AddPoiDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var title by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
-    var imageUri by remember { mutableStateOf<String?>(null) }
-    var lat by remember { mutableStateOf(initialLat.toString()) }
-    var lon by remember { mutableStateOf(initialLon.toString()) }
+    // All fields are rememberSaveable: a rotation (activity recreation) must
+    // NOT cancel the form the user is filling in.
+    var title by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf("") }
+    var description by rememberSaveable { mutableStateOf("") }
+    var city by rememberSaveable { mutableStateOf("") }
+    var imageUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var lat by rememberSaveable { mutableStateOf(initialLat.toString()) }
+    var lon by rememberSaveable { mutableStateOf(initialLon.toString()) }
 
     // System photo picker (same mechanism the journal uses): no storage
     // permission needed. The picked photo is copied to the app storage right

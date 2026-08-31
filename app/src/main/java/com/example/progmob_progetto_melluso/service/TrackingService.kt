@@ -12,16 +12,24 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.LocationManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.example.progmob_progetto_melluso.MainActivity
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.travel.LocationSample
+import com.example.progmob_progetto_melluso.travel.PoiProximity
+import com.example.progmob_progetto_melluso.travel.TravelConfig
 import com.google.android.gms.location.LocationListener
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
@@ -77,6 +85,31 @@ class TrackingService : Service() {
         override fun onLocationChanged(location: Location) = handleLocation(location)
     }
 
+    // The hardware step counter (TYPE_STEP_COUNTER, cumulative since boot):
+    // feeds the pedometer repository while the service runs, so steps are
+    // recorded in background exactly like the position. No extra permission is
+    // required for this sensor type.
+    private val sensorManager by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
+    private val stepRepository by lazy { AppContainer.stepRepository(applicationContext) }
+    private val stepSensor: Sensor? by lazy {
+        sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+    }
+    private val stepListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val value = event.values.firstOrNull()?.toLong() ?: return
+            serviceScope.launch { stepRepository.onStepCount(value) }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
+
+    // Geofencing: the POI the user is currently inside (last notified), so the
+    // near-POI notification is posted once per entry and re-armed when the user
+    // leaves the fence.
+    private var fenceNotifiedPoiId: Long? = null
+    private val poiDao by lazy { AppContainer.database(applicationContext).poiDao() }
+    private val travelConfig = TravelConfig()
+
     /**
      * Processes one location fix.
      *
@@ -96,10 +129,65 @@ class TrackingService : Service() {
         )
         // Let the map layer render the new position immediately.
         LocationUpdates.publish(sample)
-        // Persist it into the active travel path (filters live in the repository).
+        // Persist it into the active travel path (filters live in the repository)
+        // and check the POI geofences for the near-POI notification.
         serviceScope.launch {
             AppContainer.travelRepository(applicationContext).recordLocation(sample)
+            checkPoiFence(sample)
         }
+    }
+
+    /**
+     * Posts the near-POI notification when the user enters a geofence.
+     *
+     * How it works: every fix is tested against the POI radius (the same
+     * [TravelConfig.poiVisitRadiusMeters] the journal visit detection uses).
+     * When a POI is inside the fence and it is not the one already notified,
+     * a notification is posted; when the user is outside every fence the
+     * notified id is cleared, so re-entering the same POI notifies again.
+     * The map screen ALSO auto-opens the POI bottom sheet on the same signal
+     * (computed independently in MapViewModel), so notification and UI agree.
+     */
+    private suspend fun checkPoiFence(sample: LocationSample) {
+        val pois = poiDao.allPoisOnce()
+        if (pois.isEmpty()) return
+        val near = PoiProximity.near(
+            sample.latitude,
+            sample.longitude,
+            pois,
+            travelConfig.poiVisitRadiusMeters
+        )
+        if (near.isEmpty()) {
+            fenceNotifiedPoiId = null
+            return
+        }
+        // The closest POI inside the fence wins the notification.
+        val closest = near.minByOrNull { poi ->
+            kotlin.math.abs(poi.lat - sample.latitude) + kotlin.math.abs(poi.lon - sample.longitude)
+        } ?: return
+        if (fenceNotifiedPoiId == closest.id) return
+        fenceNotifiedPoiId = closest.id
+        postNearPoiNotification(closest.title)
+    }
+
+    /** Shows the "you are near <POI>" notification (separate channel). */
+    private fun postNearPoiNotification(poiTitle: String) {
+        val openApp = PendingIntent.getActivity(
+            this,
+            FENCE_OPEN_CODE,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, FENCE_CHANNEL_ID)
+            .setContentTitle(getString(R.string.fence_notification_title))
+            .setContentText(getString(R.string.fence_notification_text, poiTitle))
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setAutoCancel(true)
+            .setContentIntent(openApp)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(FENCE_NOTIFICATION_ID, notification)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -107,6 +195,7 @@ class TrackingService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        createFenceNotificationChannel()
         // Only promote to foreground if this is a real tracking session: a
         // system restart after the user already stopped must not flash the
         // notification (the stop is handled in onStartCommand below).
@@ -121,6 +210,9 @@ class TrackingService : Service() {
             IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        // Pedometer in background: the step counter sensor keeps running with
+        // the same lifecycle as the location tracking (foreground service).
+        registerStepSensor()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -143,6 +235,7 @@ class TrackingService : Service() {
     override fun onDestroy() {
         unregisterReceiver(providerChangedReceiver)
         stopLocationUpdates()
+        unregisterStepSensor()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -299,6 +392,43 @@ class TrackingService : Service() {
         manager.createNotificationChannel(channel)
     }
 
+    /** Channel of the near-POI (geofence) notifications. */
+    private fun createFenceNotificationChannel() {
+        val channel = NotificationChannel(
+            FENCE_CHANNEL_ID,
+            getString(R.string.fence_channel_name),
+            NotificationManager.IMPORTANCE_DEFAULT
+        )
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+    }
+
+    /**
+     * Starts listening to the hardware step counter, when the device has one.
+     * Devices without the sensor simply keep the pedometer at zero: the app
+     * must not crash on unsupported hardware (spec §2.1, fault tolerance).
+     */
+    private fun registerStepSensor() {
+        val sensor = stepSensor ?: return
+        try {
+            sensorManager.registerListener(
+                stepListener,
+                sensor,
+                SensorManager.SENSOR_DELAY_NORMAL,
+                Handler(Looper.getMainLooper())
+            )
+        } catch (_: SecurityException) {
+            // Android 10+: the ACTIVITY_RECOGNITION runtime permission was
+            // denied, so the step sensor cannot be registered. The pedometer
+            // stays at zero WITHOUT crashing the tracking service (fault
+            // tolerance, spec §2.1).
+        }
+    }
+
+    private fun unregisterStepSensor() {
+        sensorManager.unregisterListener(stepListener)
+    }
+
     companion object {
         /** Notification action used to stop tracking from the notification. */
         const val ACTION_STOP = "com.example.progmob_progetto_melluso.action.STOP_TRACKING"
@@ -308,6 +438,9 @@ class TrackingService : Service() {
         private const val CHANNEL_ID = "tracking"
         private const val NOTIFICATION_ID = 1
         private const val STOP_REQUEST_CODE = 100
+        private const val FENCE_CHANNEL_ID = "geofence"
+        private const val FENCE_NOTIFICATION_ID = 2
+        private const val FENCE_OPEN_CODE = 101
         private const val UPDATE_INTERVAL_MS = 5_000L
         private const val MIN_DISPLACEMENT_METERS = 5f
     }
