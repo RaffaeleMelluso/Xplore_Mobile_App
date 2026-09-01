@@ -228,6 +228,11 @@ class TrackingService : Service() {
         clearStopRequest()
         startAsForeground()
         startLocationUpdates()
+        // Request one fresh fix immediately when tracking starts. This is
+        // important after the user grants location permission from the map:
+        // waiting for the first periodic update made the map appear empty
+        // until the activity was restarted.
+        requestCurrentLocation()
         // Restart the service if the system kills it while tracking is expected.
         return START_STICKY
     }

@@ -100,6 +100,7 @@ import com.example.progmob_progetto_melluso.journal.JournalTransport
 import com.example.progmob_progetto_melluso.journal.JournalVisit
 import com.example.progmob_progetto_melluso.journal.TransportMode
 import com.example.progmob_progetto_melluso.ghost.Ghost
+import com.example.progmob_progetto_melluso.service.TrackingService
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PathSegmenter
 import com.example.progmob_progetto_melluso.travel.StaleReason
@@ -224,6 +225,20 @@ fun MapScreen(modifier: Modifier = Modifier) {
     val locationPermissionGranted = remember(locationRefreshTick) { hasLocationPermission(context) }
     val gpsEnabled = remember(locationRefreshTick) { isGpsEnabled(context) }
     val mapReady = locationPermissionGranted && gpsEnabled
+
+    // If permission was granted from this screen (rather than by the initial
+    // request in MainActivity), the tracking service may not be running yet.
+    // Start it as soon as both prerequisites are available so the first fix is
+    // published without requiring an app restart. The effect also covers a
+    // return from system settings and a GPS toggle made outside the app.
+    LaunchedEffect(mapReady) {
+        if (mapReady) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, TrackingService::class.java)
+            )
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -352,7 +367,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
         // Block the map with a full-screen notice until location can be used.
         LocationBlockScreen(
             locationPermissionGranted = locationPermissionGranted,
-            gpsEnabled = gpsEnabled
+            gpsEnabled = gpsEnabled,
+            onLocationPermissionGranted = { locationRefreshTick++ }
         )
 
 
@@ -1857,16 +1873,25 @@ private const val LOCATION_POLL_MILLIS = 2_000L
  *
  * @param locationPermissionGranted whether the location permission is granted.
  * @param gpsEnabled whether a location provider (GPS/network) is enabled.
+ * @param onLocationPermissionGranted callback used to refresh the map
+ *   immediately after the user grants fine or coarse location access.
  */
 @Composable
 private fun LocationBlockScreen(
     locationPermissionGranted: Boolean,
-    gpsEnabled: Boolean
+    gpsEnabled: Boolean,
+    onLocationPermissionGranted: () -> Unit
 ) {
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* Recomposition re-checks the state; nothing else needed. */ }
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        ) {
+            onLocationPermissionGranted()
+        }
+    }
 
     val message: Int
     val actionLabel: Int
@@ -1876,7 +1901,14 @@ private fun LocationBlockScreen(
         !locationPermissionGranted -> {
             message = R.string.map_warning_permission
             actionLabel = R.string.map_warning_grant
-            onAction = { permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+            onAction = {
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
         }
         !gpsEnabled -> {
             message = R.string.map_warning_gps
