@@ -10,7 +10,7 @@ import com.example.progmob_progetto_melluso.journal.TravelJournal
  *
  * How it works: the screen only collects this state and emits user intents to
  * the ViewModel; every value here is produced by the ViewModel from the
- * journal repository flows (spec §4).
+ * journal repository flows (the application architecture).
  *
  * @property travels the whole journal (newest first), used by the list screen.
  * @property activeTravel the ongoing travel (endUtcMillis == null), or null.

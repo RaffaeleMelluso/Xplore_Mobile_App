@@ -23,7 +23,7 @@ private val Context.userPreferencesStore: DataStore<Preferences> by preferencesD
 
 /**
  * User-level preferences and profile data persisted with Jetpack DataStore
- * (spec §5.4: preferences must be stored persistently and reactively).
+ * (the preferences requirement: preferences must be stored persistently and reactively).
  *
  * How it works: every preference is a key in the preferences DataStore and is
  * exposed as an immutable [UserPreferences] through a continuous [Flow], so the

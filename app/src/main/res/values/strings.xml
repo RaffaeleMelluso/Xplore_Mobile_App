@@ -148,7 +148,7 @@
     <string name="journal_no_video_player">No video player found</string>
     <string name="journal_open_video_with">Open video with</string>
 
-    <!-- Transport reporting (spec §3.1, simple flow) -->
+    <!-- Transport reporting (the transport-reporting requirement, simple flow) -->
     <string name="journal_transports_label">Transport</string>
     <string name="journal_no_transports">No transport reported yet.</string>
     <string name="journal_add_transport">Add transport</string>
@@ -161,12 +161,13 @@
     <string name="transport_bus">Bus</string>
     <string name="transport_tram">Tram</string>
     <string name="transport_metro">Metro</string>
+    <string name="transport_train">Train</string>
     <string name="transport_ferry">Ferry</string>
 
     <!-- Ghost cards: transports examples -->
     <string name="map_ghost_transports_label">Transport they used</string>
 
-    <!-- Stale-travel confirmation (spec §7.1, confirmed vacation end) -->
+    <!-- Stale-travel confirmation (the travel lifecycle requirement, confirmed vacation end) -->
     <string name="map_stale_travel_title">Is your trip still in progress?</string>
     <string name="map_stale_travel_body_old">Your trip started more than 3 days ago. If the vacation is over, end the trip so a new one can start.</string>
     <string name="map_stale_travel_body_far">You are far from where this trip started. If you moved to a new place, end the trip so a new one can start here.</string>

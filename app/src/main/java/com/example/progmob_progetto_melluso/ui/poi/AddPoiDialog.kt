@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Dialog to create a point of interest (spec §3.3).
+ * Dialog to create a point of interest (the POI-reporting requirement).
  *
  * How it works: pure UI — it holds the form fields and hands the built
  * [PoiEntity] to [onConfirm]; the ViewModel stores it and the reactive POI

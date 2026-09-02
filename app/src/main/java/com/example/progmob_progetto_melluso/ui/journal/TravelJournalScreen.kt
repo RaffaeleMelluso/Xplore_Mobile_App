@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,7 +59,7 @@ import java.util.Locale
  * How it works: it collects [TravelJournalUiState] from the ViewModel and shows
  * either the journal list (with a start/stop button for the ongoing trip) or,
  * when a travel is opened, the [TravelDetailScreen]. The screen only reads
- * state and emits intents; no business logic here (spec §4).
+ * state and emits intents; no business logic here (the application architecture).
  *
  * @param onTravelsMapSelected optional callback when the map filter wants a trip.
  */
@@ -245,14 +246,18 @@ private fun CallToActionBar(
                 }
             }
             // Live pedometer stats of the ongoing trip, right in the journal
-            // card — no need to open the detail (spec §3.1).
+            // card — no need to open the detail (the transport-reporting requirement).
             if (isActive && activeTravel != null) {
                 Spacer(Modifier.height(12.dp))
-                OngoingTripStats(
-                    startUtcMillis = activeTravel.startUtcMillis,
-                    steps = steps,
-                    distanceMeters = distanceMeters
-                )
+                // A new travel gets a new composition key, so the timer state
+                // cannot be reused from the trip that was just stopped.
+                key(activeTravel.travelId) {
+                    OngoingTripStats(
+                        startUtcMillis = activeTravel.startUtcMillis,
+                        steps = steps,
+                        distanceMeters = distanceMeters
+                    )
+                }
             }
         }
     }

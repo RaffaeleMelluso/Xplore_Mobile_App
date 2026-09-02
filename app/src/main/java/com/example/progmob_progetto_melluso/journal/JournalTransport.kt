@@ -1,7 +1,7 @@
 package com.example.progmob_progetto_melluso.journal
 
 /**
- * The transport modes the user can report during a trip (spec §3.1: the
+ * The transport modes the user can report during a trip (the transport-reporting requirement: the
  * travel journal documents the transport used).
  *
  * Kept intentionally simple: the "simple reporting" flow lets the user pick a
@@ -16,6 +16,8 @@ enum class TransportMode(val storageName: String) {
     TRAM("tram"),
     /** Metro / underground. */
     METRO("metro"),
+    /** Train (with an optional line or route name). */
+    TRAIN("train"),
     /** Ferry / boat. */
     FERRY("ferry");
 

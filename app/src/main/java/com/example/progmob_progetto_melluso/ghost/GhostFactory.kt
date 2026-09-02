@@ -16,7 +16,7 @@ import kotlin.math.sqrt
  * two demo cities (Turin around the Informatics faculty / Parco Dora, and
  * Cerignola city centre) using deterministic waypoints on real streets.
  *
- * How it works: there is no backend yet (spec §5.3bis), so this class holds a
+ * How it works: there is no backend yet (the local ghost simulation requirement), so this class holds a
  * fixed set of ghost personas. Each persona has an ordered route of real
  * waypoints, a speed, an online/past flag and the journal-like detail shown
  * when tapped. For a given anchor (user position) we pick the closest demo
@@ -26,7 +26,7 @@ import kotlin.math.sqrt
  * simulator stays deterministic and unit-testable. When a real backend exists,
  * only the ghost data source changes; the rendering pipeline stays.
  *
- * Visibility is bounded (checklist §6): only the ghosts whose marker is within
+ * Visibility is bounded (the map visibility limits): only the ghosts whose marker is within
  * [config.ghostVisibilityRadiusMeters] from the user are returned, and if more
  * than [config.maxGhostsShown] are in range the closest ones win. The cost of
  * rendering is therefore constant no matter how many users actually exist.

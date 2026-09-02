@@ -7,7 +7,7 @@ package com.example.progmob_progetto_melluso.ghost
  * foot-routing API (router.project-osrm.org, OpenStreetMap data):
  * the polylines follow actual walkable streets instead of straight
  * lines through buildings. They are static so the local,
- * deterministic simulation (spec §5.3bis) stays fully offline.
+ * deterministic simulation (the local ghost simulation requirement) stays fully offline.
  * Regenerate with: python scripts/fetch_ghost_routes.py
  */
 object GhostRoutes {

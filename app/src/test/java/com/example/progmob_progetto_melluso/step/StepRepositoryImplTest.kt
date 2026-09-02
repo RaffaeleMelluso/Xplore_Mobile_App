@@ -123,6 +123,36 @@ class StepRepositoryImplTest {
     }
 
     /**
+     * Verifica che fermare un viaggio e iniziarne un altro non trasferisca nel
+     * nuovo viaggio il delta del contatore cumulativo del sensore.
+     */
+    @Test
+    fun onStepCount_newTravelStartsWithCleanBaseline() = runTest {
+        val travelDao = mock<TravelDao>()
+        val newTravel = activeTravel.copy(id = 8L)
+        whenever(travelDao.activeTravelForUserOnce("u1")).thenReturn(
+            activeTravel,
+            activeTravel,
+            newTravel,
+            newTravel
+        )
+        val summaryDao = mock<StepDailySummaryDao>()
+        whenever(summaryDao.summaryForTravelAndDateOnce(any(), any(), any())).thenReturn(null)
+        val checkpointDao = mock<StepCheckpointDao>()
+        whenever(checkpointDao.checkpointForTravelOnce(8L)).thenReturn(null)
+
+        val repo = repository(travelDao, checkpointDao, summaryDao)
+        repo.onStepCount(1_000L) // first trip baseline
+        repo.onStepCount(1_100L) // first trip: +100
+        repo.onStepCount(5_000L) // new trip baseline, not +3,900
+        repo.onStepCount(5_050L) // new trip: +50
+
+        verify(summaryDao, times(2)).upsert(any())
+        verify(summaryDao).upsert(argThat { travelId == 7L && steps == 100L })
+        verify(summaryDao).upsert(argThat { travelId == 8L && steps == 50L })
+    }
+
+    /**
      * Verifica che un cambio di giorno crei un nuovo bucket: la sintesi del
      * giorno precedente resta intatta e il totale del viaggio resta esatto.
      */

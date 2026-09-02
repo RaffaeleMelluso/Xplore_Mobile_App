@@ -33,7 +33,7 @@ data class DetectedCity(
  *
  * The algorithm never queries the network: it only clusters by haversine
  * distance, so it works fully offline and is unit-testable with deterministic
- * inputs (spec §4/§6).
+ * inputs (the application architecture/§6).
  *
  * @param cityRadiusMeters Radius that groups points into the same destination.
  * @param minPointsInCity Minimum recorded points that make a cluster a real stop.

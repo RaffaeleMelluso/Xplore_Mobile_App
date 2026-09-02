@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service that tracks the user position while the app is in the
- * background or the screen is off (spec §5.2).
+ * background or the screen is off (the background-tracking requirement).
  *
  * How it works: on start it promotes itself to a foreground service with a
  * persistent notification (so Android does not kill it), then requests
@@ -411,7 +411,7 @@ class TrackingService : Service() {
     /**
      * Starts listening to the hardware step counter, when the device has one.
      * Devices without the sensor simply keep the pedometer at zero: the app
-     * must not crash on unsupported hardware (spec §2.1, fault tolerance).
+     * must not crash on unsupported hardware (fault tolerance).
      */
     private fun registerStepSensor() {
         val sensor = stepSensor ?: return
@@ -426,7 +426,7 @@ class TrackingService : Service() {
             // Android 10+: the ACTIVITY_RECOGNITION runtime permission was
             // denied, so the step sensor cannot be registered. The pedometer
             // stays at zero WITHOUT crashing the tracking service (fault
-            // tolerance, spec §2.1).
+            // tolerance).
         }
     }
 

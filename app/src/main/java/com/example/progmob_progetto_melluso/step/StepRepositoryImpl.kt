@@ -56,6 +56,10 @@ class StepRepositoryImpl(
     // delta is cheap; restored from the checkpoint row after a process restart.
     private var lastSensorValue: Long? = null
 
+    // The travel to which [lastSensorValue] belongs. A sensor counter is global
+    // to the device, but its delta must never cross a stopped/new travel.
+    private var lastSensorTravelId: Long? = null
+
     // Sensor events are dispatched on the main thread and each is launched on
     // the IO pool: the read-modify-write on [lastSensorValue] must be atomic,
     // otherwise concurrent events could be double-counted or lost.
@@ -64,7 +68,33 @@ class StepRepositoryImpl(
     override suspend fun onStepCount(cumulativeSteps: Long) = mutex.withLock {
         if (cumulativeSteps <= 0) return@withLock
 
-        val previous = lastSensorValue ?: readCheckpointForActiveTravel()
+        val activeBeforeReading = activeTravelForCurrentUser()
+        val previous = if (activeBeforeReading == null && lastSensorTravelId != null) {
+            // The previous travel was stopped. Drop its baseline before reading
+            // the global sensor again; otherwise the first reading of the new
+            // travel would import the old trip's steps.
+            lastSensorTravelId = null
+            lastSensorValue = null
+            null
+        } else if (activeBeforeReading == null) {
+            // No trip is active yet. Keep the first sensor reading as a
+            // baseline so a later positive delta can create a new trip.
+            lastSensorValue
+        } else if (lastSensorTravelId == null) {
+            // After a process restart, resume only from THIS travel's
+            // checkpoint. A missing checkpoint means this is the first sensor
+            // reading of that trip, so it becomes the baseline.
+            lastSensorTravelId = activeBeforeReading.id
+            stepCheckpointDao.checkpointForTravelOnce(activeBeforeReading.id)?.lastSensorValue
+        } else if (lastSensorTravelId != activeBeforeReading.id) {
+            // A different trip became active in this process. Its first reading
+            // is a fresh baseline and must not import the previous trip's
+            // cumulative sensor delta.
+            lastSensorTravelId = activeBeforeReading.id
+            null
+        } else {
+            lastSensorValue
+        }
 
         // The counter restarts from zero when the device reboots: a lower value
         // means "reset", not "walked backwards". Re-baseline from the new count.
@@ -81,7 +111,8 @@ class StepRepositoryImpl(
         // GPS fix yet or location services off, online or offline), walking
         // creates one — so the pedometer always counts whenever the app is
         // running, foreground or background, instead of discarding steps.
-        val active = activeTravelOrCreate(clock())
+        val active = activeBeforeReading ?: activeTravelOrCreate(clock())
+        lastSensorTravelId = active.id
         saveCheckpoint(active.id, cumulativeSteps)
 
         // Accumulate into the local-day bucket of the active travel. On a day
@@ -120,6 +151,13 @@ class StepRepositoryImpl(
             if (id == null) flowOf(0.0) else stepDailySummaryDao.totalDistanceForTravel(id)
         }
 
+    /** Returns the active travel of the current user for one sensor reading. */
+    private suspend fun activeTravelForCurrentUser(): TravelEntity? {
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        return travelDao.activeTravelForUserOnce(userId)
+    }
+
     /**
      * Emits the id of the active travel of the current user (null when none),
      * so the live totals re-anchor automatically when a trip starts/ends.
@@ -128,18 +166,6 @@ class StepRepositoryImpl(
         val userId = userIdProvider()
         travelDao.claimLegacyTravels(userId)
         emitAll(travelDao.activeTravelForUser(userId).map { it?.id })
-    }
-
-    /**
-     * Returns the checkpoint of the CURRENT active travel, so after a process
-     * restart the delta resumes exactly where it stopped. Null when there is
-     * no active travel (the first reading then baselines the sensor).
-     */
-    private suspend fun readCheckpointForActiveTravel(): Long? {
-        val userId = userIdProvider()
-        travelDao.claimLegacyTravels(userId)
-        val active = travelDao.activeTravelForUserOnce(userId) ?: return null
-        return stepCheckpointDao.checkpointForTravelOnce(active.id)?.lastSensorValue
     }
 
     /**

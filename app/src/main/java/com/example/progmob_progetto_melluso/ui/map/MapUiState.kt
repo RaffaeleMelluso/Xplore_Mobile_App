@@ -35,7 +35,7 @@ import com.example.progmob_progetto_melluso.travel.StaleReason
  *   progress before closing it. Null when nothing is stale.
  * @property nearbyPoi the POI whose geofence the user is currently inside,
  *   when any: the map auto-opens its bottom sheet and the tracking service
- *   posts the near-POI notification (spec §7.3, geofencing). Null when the
+ *   posts the near-POI notification (the POI proximity requirement, geofencing). Null when the
  *   user is outside every fence.
  * @property shownGeofencePoiIds the POIs whose geofence sheet has already been
  *   auto-opened during the CURRENT active travel: once seen they do not reopen
@@ -48,12 +48,21 @@ import com.example.progmob_progetto_melluso.travel.StaleReason
  * @property isLoading true until the first combined emission arrives.
  */
 /**
- * A stale ongoing travel the user should confirm the end of (spec §7.1,
+ * A stale ongoing travel the user should confirm the end of (the travel lifecycle requirement,
  * confirmed close instead of a silent background close).
  */
 data class StaleTravel(
     val travelId: Long,
     val reason: StaleReason
+)
+
+/** Camera position retained while the user switches between home tabs. */
+data class MapCameraState(
+    val latitude: Double,
+    val longitude: Double,
+    val zoom: Double,
+    val bearing: Double,
+    val tilt: Double
 )
 
 data class MapUiState(

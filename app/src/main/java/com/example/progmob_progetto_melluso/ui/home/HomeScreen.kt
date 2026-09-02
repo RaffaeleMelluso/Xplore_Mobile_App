@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.example.progmob_progetto_melluso.ui.map.MapCameraState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -79,6 +80,29 @@ fun HomeScreen(
     // Pure presentation state: which tab is selected. Survives configuration changes.
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
+    // Keep the map camera at the Home level: MapScreen is removed from the
+    // composition when another tab is selected, so its MapView cannot own this
+    // state if the user's pan/zoom must survive a tab switch.
+    var cameraLatitude by rememberSaveable { mutableStateOf<Double?>(null) }
+    var cameraLongitude by rememberSaveable { mutableStateOf<Double?>(null) }
+    var cameraZoom by rememberSaveable { mutableStateOf<Double?>(null) }
+    var cameraBearing by rememberSaveable { mutableStateOf<Double?>(null) }
+    var cameraTilt by rememberSaveable { mutableStateOf<Double?>(null) }
+    val cameraState = if (
+        cameraLatitude != null && cameraLongitude != null && cameraZoom != null &&
+        cameraBearing != null && cameraTilt != null
+    ) {
+        MapCameraState(
+            latitude = cameraLatitude!!,
+            longitude = cameraLongitude!!,
+            zoom = cameraZoom!!,
+            bearing = cameraBearing!!,
+            tilt = cameraTilt!!
+        )
+    } else {
+        null
+    }
+
     // Stack of previously visited tabs (indices, oldest first), stored as a
     // comma-separated string so it survives configuration changes.
     var history by rememberSaveable { mutableStateOf("") }
@@ -117,7 +141,16 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             when (HomeTab.entries[selectedTabIndex]) {
-                HomeTab.MAP -> MapScreen()
+                HomeTab.MAP -> MapScreen(
+                    cameraState = cameraState,
+                    onCameraChanged = { state ->
+                        cameraLatitude = state.latitude
+                        cameraLongitude = state.longitude
+                        cameraZoom = state.zoom
+                        cameraBearing = state.bearing
+                        cameraTilt = state.tilt
+                    }
+                )
                 HomeTab.TRAVEL -> TravelJournalScreen()
                 HomeTab.TRENDS -> TrendScreen()
                 HomeTab.MY_POIS -> MyPoiScreen()

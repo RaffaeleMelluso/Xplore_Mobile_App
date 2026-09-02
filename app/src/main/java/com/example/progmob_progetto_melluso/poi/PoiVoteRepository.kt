@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.Flow
  *
  * Why it exists: every screen that shows a POI (journal visits, the map POI
  * card, the trends ranking) must vote with the SAME rules, so the vote logic
- * lives here once instead of being duplicated per screen. Rules (spec §5 /
- * checklist §5): one vote per user per POI, toggling the same direction again
+ * lives here once instead of being duplicated per screen. Rules (the voting rules /
+ * the voting rules): one vote per user per POI, toggling the same direction again
  * removes the vote, the opposite direction replaces it, and the cached POI
  * counter is refreshed right after so rankings stay consistent.
  */

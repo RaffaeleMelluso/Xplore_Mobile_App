@@ -16,8 +16,10 @@ import com.example.progmob_progetto_melluso.data.entities.TravelMediaEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelTransportEntity
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
+import com.example.progmob_progetto_melluso.travel.PathSegmenter
 import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelCityDetector
+import com.example.progmob_progetto_melluso.travel.TravelDistanceCalculator
 import com.example.progmob_progetto_melluso.travel.TravelConfig
 import com.example.progmob_progetto_melluso.travel.TravelRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -102,8 +104,12 @@ class TravelJournalRepositoryImpl(
     override fun observeTravelSteps(travelId: Long): Flow<Long> =
         stepDailySummaryDao.totalStepsForTravel(travelId)
 
-    override fun observeTravelDistance(travelId: Long): Flow<Double> =
-        stepDailySummaryDao.totalDistanceForTravel(travelId)
+    override fun observeTravelDistance(travelId: Long): Flow<Double> = combine(
+        stepDailySummaryDao.totalDistanceForTravel(travelId),
+        pathPointDao.pointsForTravel(travelId)
+    ) { pedometerDistance, pathPoints ->
+        TravelDistanceCalculator.calculate(pedometerDistance, pathPoints)
+    }
 
     override fun observeTravelDetails(travelId: Long): Flow<TravelJournal?> =
         travelDao.travelById(travelId).flatMapLatest { travel ->
@@ -174,9 +180,19 @@ class TravelJournalRepositoryImpl(
                 }
 
                 // Pedometer totals of this travel (0 for trips recorded before
-                // the feature or without a step sensor on the device).
+                // the feature or without a step sensor on the device). Distance
+                // is combined with the GPS path below, so vehicle movement is
+                // included even when the step sensor is unavailable.
                 val stepsUi = stepDailySummaryDao.totalStepsForTravel(travelId)
-                val distanceUi = stepDailySummaryDao.totalDistanceForTravel(travelId)
+                val distanceUi = combine(
+                    stepDailySummaryDao.totalDistanceForTravel(travelId),
+                    pathPointDao.pointsForTravel(travelId)
+                ) { pedometerDistance, pathPoints ->
+                    maxOf(
+                        pedometerDistance,
+                        PathSegmenter.distanceMeters(pathPoints)
+                    )
+                }
 
                 // combine() has typed overloads up to five flows, so the five
                 // existing streams build the journal and the path + transports
@@ -387,7 +403,7 @@ class TravelJournalRepositoryImpl(
             travelRepository.stopTravel()
         }
         travelDao.deleteById(travelId)
-        // A deleted trip takes the votes given on its POIs with it (spec §5:
+        // A deleted trip takes the votes given on its POIs with it (
         // the journal is the user's own data, votes disappear with the trip).
         visitedPoiIds.forEach { poiVoteRepository.removeVote(it) }
     }

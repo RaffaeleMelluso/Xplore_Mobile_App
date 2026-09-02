@@ -63,4 +63,21 @@ object PathSegmenter {
         // Single-point segments cannot be drawn as lines: drop them.
         return segments.filter { it.size >= 2 }
     }
+
+    /**
+     * Computes the distance represented by the recorded path, ignoring jumps
+     * across tracking interruptions. This is the GPS counterpart of the
+     * pedometer estimate.
+     */
+    fun distanceMeters(points: List<TravelPathPointEntity>): Double =
+        split(points).sumOf { segment ->
+            segment.zipWithNext().sumOf { (from, to) ->
+                GeoUtils.haversineMeters(
+                    from.latitude,
+                    from.longitude,
+                    to.latitude,
+                    to.longitude
+                )
+            }
+        }
 }

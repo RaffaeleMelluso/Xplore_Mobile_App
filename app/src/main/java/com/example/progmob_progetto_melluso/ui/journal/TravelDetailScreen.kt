@@ -115,7 +115,7 @@ import java.util.Locale
  * photos are decoded locally for display), the list of detected destinations
  * (each renameable) and the visited POIs (removable).
  *
- * Votes are NOT shown here: per the specifications they live only on POIs.
+ * Votes are NOT shown here: per the the requirements they live only on POIs.
  *
  * @param uiState the journal state containing the opened [TravelJournal].
  * @param onBack closes the detail and returns to the list.
@@ -248,7 +248,7 @@ fun TravelDetailScreen(
 }
 
 /**
- * Pedometer + duration card of a trip (spec §3.1: "registrare il numero di
+ * Pedometer + duration card of a trip (the transport-reporting requirement: "registrare il numero di
  * passi e le distanze percorse durante il viaggio" + the trip length).
  *
  * How it works: the duration is end-start for a closed trip; while the trip is
@@ -909,11 +909,12 @@ private val TransportMode.labelRes: Int
         TransportMode.BUS -> R.string.transport_bus
         TransportMode.TRAM -> R.string.transport_tram
         TransportMode.METRO -> R.string.transport_metro
+        TransportMode.TRAIN -> R.string.transport_train
         TransportMode.FERRY -> R.string.transport_ferry
     }
 
 /**
- * Transport segments reported during the trip (spec §3.1, simple flow).
+ * Transport segments reported during the trip (the transport-reporting requirement, simple flow).
  *
  * How it works: each row shows a placeholder icon + the mode (with the line
  * number when the user reported one) and can be removed; the "Add" button
@@ -1013,6 +1014,7 @@ private fun TransportModeIcon(mode: TransportMode, modifier: Modifier = Modifier
         TransportMode.BUS -> "\uD83D\uDE8C"
         TransportMode.TRAM -> "\uD83D\uDE8B"
         TransportMode.METRO -> "\uD83D\uDE87"
+        TransportMode.TRAIN -> "\uD83D\uDE86"
         TransportMode.FERRY -> "\u26F4\uFE0F"
     }
     val background = when (mode) {
@@ -1020,6 +1022,7 @@ private fun TransportModeIcon(mode: TransportMode, modifier: Modifier = Modifier
         TransportMode.BUS -> Color(0xFF2563EB)
         TransportMode.TRAM -> Color(0xFFDC2626)
         TransportMode.METRO -> Color(0xFF7C3AED)
+        TransportMode.TRAIN -> Color(0xFFEA580C)
         TransportMode.FERRY -> Color(0xFF0891B2)
     }
     Box(

@@ -334,7 +334,7 @@ private fun ThemeOption(
     }
 }
 
-/** Privacy toggles (spec §5.4 + NFR): anonymous mode and path visibility. */
+/** Privacy toggles (the preferences requirement + NFR): anonymous mode and path visibility. */
 @Composable
 private fun PrivacySection(
     anonymous: Boolean,

@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
  * (mutated by user intents such as start/stop/open/edit/vote) and the detail
  * flow of that travel, merged into one immutable [TravelJournalUiState] via
  * stateIn. All asynchrony lives in [viewModelScope]; the UI only collects the
- * state and emits intents (spec §4).
+ * state and emits intents (the application architecture).
  *
  * @param journalRepository the journal single source of truth.
  */
@@ -154,7 +154,7 @@ class TravelJournalViewModel(
 
     /**
      * Reports a transport segment for the opened travel (mode + optional line
-     * number), the simple flow of spec §3.1.
+     * number), the simple flow of the transport-reporting requirement.
      */
     fun addTransport(mode: com.example.progmob_progetto_melluso.journal.TransportMode, lineName: String?) {
         val id = selectedTravelId.value ?: return

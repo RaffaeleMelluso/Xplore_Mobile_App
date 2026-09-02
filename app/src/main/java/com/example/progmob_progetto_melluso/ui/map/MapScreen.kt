@@ -91,7 +91,6 @@ import com.example.progmob_progetto_melluso.R
 import kotlinx.coroutines.delay
 import com.google.gson.JsonObject
 import com.example.progmob_progetto_melluso.core.AppContainer
-import com.example.progmob_progetto_melluso.core.GeoUtils
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
@@ -141,13 +140,17 @@ internal const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
  * underlying state changes (diff strategy in [MapOverlays]), which keeps the
  * load on old smartphones low.
  *
- * The camera follows the user only on significant movement (avoids
- * animation/re-layout churn on tiny GPS jitter); the floating button forces a
- * recenter. Tapping a POI or ghost opens a small info card; tapping elsewhere
+ * The camera is initially centered on the first usable location and then
+ * remains under the user's control; the floating button forces a recenter.
+ * Tapping a POI or ghost opens a small info card; tapping elsewhere
  * closes it.
  */
 @Composable
-fun MapScreen(modifier: Modifier = Modifier) {
+fun MapScreen(
+    modifier: Modifier = Modifier,
+    cameraState: MapCameraState? = null,
+    onCameraChanged: (MapCameraState) -> Unit = {}
+) {
     val context = LocalContext.current
     val viewModel: MapViewModel = viewModel(
         factory = remember(context) {
@@ -163,8 +166,9 @@ fun MapScreen(modifier: Modifier = Modifier) {
 
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
     val overlaysRef = remember { mutableStateOf<MapOverlays?>(null) }
-    val lastCamera = remember { mutableStateOf<LatLng?>(null) }
     var recenterTick by remember { mutableIntStateOf(0) }
+    var handledRecenterTick by remember { mutableIntStateOf(0) }
+    var cameraInitialized by remember { mutableStateOf(false) }
 
     // Transient UI state is rememberSaveable so a rotation (activity
     // recreation) keeps the user exactly where they were — selected tab, open
@@ -178,7 +182,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
     var showNearbyTravelers by rememberSaveable { mutableStateOf(false) }
 
     // Whether the user is choosing ON THE MAP where to place the new POI
-    // (user reporting, spec §3.3): any map tap then places the point.
+    // (user reporting, the POI-reporting requirement): any map tap then places the point.
     var pickingPoiLocation by rememberSaveable { mutableStateOf(false) }
 
     // The map point the user tapped while choosing the POI location; stored as
@@ -260,20 +264,44 @@ fun MapScreen(modifier: Modifier = Modifier) {
                             val overlays = MapOverlays(ctx, map, style)
                             overlaysRef.value = overlays
                             overlays.update(uiState)
-                            // Before the first fix, show a sensible city view
-                            // instead of the whole-world default camera; the
-                            // camera then jumps to the user when the fix lands.
-                            if (uiState.userLocation == null) {
+                            // Restore the camera chosen by the user when the
+                            // map tab was previously visible. Only a map with
+                            // no saved camera uses the city fallback.
+                            if (cameraState != null) {
+                                map.cameraPosition = cameraState.toCameraPosition()
+                                cameraInitialized = true
+                            } else {
+                                val initialTarget = uiState.userLocation?.let {
+                                    LatLng(it.latitude, it.longitude)
+                                } ?: DEFAULT_PRE_FIX_CAMERA
                                 map.cameraPosition = CameraPosition.Builder()
-                                    .target(DEFAULT_PRE_FIX_CAMERA)
-                                    .zoom(INITIAL_ZOOM)
+                                    .target(initialTarget)
+                                    .zoom(if (uiState.userLocation == null) INITIAL_ZOOM else FOLLOW_ZOOM)
                                     .build()
+                                if (uiState.userLocation != null) {
+                                    cameraInitialized = true
+                                }
                             }
                         }
                         // Tap on empty map closes the info card; the card is
                         // only shown when a POI/ghost is actually hit. While
                         // picking a POI location, ANY tap places the point
                         // and consumes the gesture (no card opens).
+                        map.addOnCameraIdleListener {
+                            map.cameraPosition?.let { position ->
+                                position.target?.let { target ->
+                                    onCameraChanged(
+                                        MapCameraState(
+                                            latitude = target.latitude,
+                                            longitude = target.longitude,
+                                            zoom = position.zoom,
+                                            bearing = position.bearing,
+                                            tilt = position.tilt
+                                        )
+                                    )
+                                }
+                            }
+                        }
                         map.addOnMapClickListener { latLng ->
                             if (pickingPoiLocation) {
                                 pickedPoiLat = latLng.latitude
@@ -341,26 +369,27 @@ fun MapScreen(modifier: Modifier = Modifier) {
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
 
-        // Camera follows the user only on significant movement or explicit recenter.
+        // Do not follow location updates: panning and zooming the map must not
+        // be interrupted while the user is inspecting another area. Center on
+        // the first fix only, or when the explicit recenter button is pressed.
         LaunchedEffect(uiState.userLocation, recenterTick, mapReady) {
-            if (!mapReady) return@LaunchedEffect
+            if (!mapReady || uiState.userLocation == null ||
+                cameraInitialized && recenterTick == handledRecenterTick
+            ) {
+                return@LaunchedEffect
+            }
             val mapView = mapViewRef.value ?: return@LaunchedEffect
             val location = uiState.userLocation ?: return@LaunchedEffect
-            val target = LatLng(location.latitude, location.longitude)
-            val previous = lastCamera.value
-            val forceRecenter = recenterTick > 0
-            val movedSignificantly = previous == null || GeoUtils.haversineMeters(
-                previous.latitude, previous.longitude, target.latitude, target.longitude
-            ) >= CAMERA_MOVE_THRESHOLD_METERS
-            if (forceRecenter || movedSignificantly) {
-                lastCamera.value = target
-                mapView.getMapAsync { map ->
-                    val zoom = if (previous == null) FOLLOW_ZOOM else map.cameraPosition?.zoom ?: FOLLOW_ZOOM
-                    map.cameraPosition = CameraPosition.Builder()
-                        .target(target)
-                        .zoom(zoom)
-                        .build()
-                }
+            mapView.getMapAsync { map ->
+                val current = map.cameraPosition
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(location.latitude, location.longitude))
+                    .zoom(current?.zoom ?: FOLLOW_ZOOM)
+                    .bearing(current?.bearing ?: 0.0)
+                    .tilt(current?.tilt ?: 0.0)
+                    .build()
+                cameraInitialized = true
+                handledRecenterTick = recenterTick
             }
         }
 
@@ -443,7 +472,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 // inserted before it in the column, so the FAB stays anchored
                 // at the bottom.
                 if (showMapActions) {
-                    // Add POI (spec §3.3): starts/cancels the location picking
+                    // Add POI (the POI-reporting requirement): starts/cancels the location picking
                     // on the map; the form opens on the chosen point and the
                     // POI joins the shared pool.
                     MapActionPill(
@@ -549,7 +578,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
         // POI details as a LARGE bottom sheet (about twice the old top card):
         // photo, name, description and votes in a readable layout. It opens
         // when a marker is tapped AND automatically when the geofencing puts
-        // the user inside a POI radius (spec §7.3); the shared vote engine
+        // the user inside a POI radius (the POI proximity requirement); the shared vote engine
         // keeps the score in sync with the journal and the trends page.
         val poi = selectedPoi
         val nearby = uiState.nearbyPoi
@@ -664,7 +693,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        // Stale-travel confirmation (spec §7.1): when the active trip looks
+        // Stale-travel confirmation (the travel lifecycle requirement): when the active trip looks
         // finished — the user is far from where it started or it began days
         // ago — the app ASKS instead of closing it silently in the background.
         val stale = uiState.staleTravel
@@ -697,7 +726,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
 }
 
 /**
- * Large bottom sheet with the details of a POI (geofencing sheet, spec §7.3).
+ * Large bottom sheet with the details of a POI (geofencing sheet, the POI proximity requirement).
  *
  * How it works: a [ModalBottomSheet] (about twice the size of the old top
  * card) showing the real photo, the name, the category/city, a readable
@@ -1170,6 +1199,7 @@ private val TransportMode.ghostLabelRes: Int
         TransportMode.BUS -> R.string.transport_bus
         TransportMode.TRAM -> R.string.transport_tram
         TransportMode.METRO -> R.string.transport_metro
+        TransportMode.TRAIN -> R.string.transport_train
         TransportMode.FERRY -> R.string.transport_ferry
     }
 
@@ -1192,6 +1222,7 @@ private fun GhostTransportIcon(mode: TransportMode, modifier: Modifier = Modifie
         TransportMode.BUS -> "\uD83D\uDE8C"
         TransportMode.TRAM -> "\uD83D\uDE8B"
         TransportMode.METRO -> "\uD83D\uDE87"
+        TransportMode.TRAIN -> "\uD83D\uDE86"
         TransportMode.FERRY -> "\u26F4\uFE0F"
     }
     val background = when (mode) {
@@ -1199,6 +1230,7 @@ private fun GhostTransportIcon(mode: TransportMode, modifier: Modifier = Modifie
         TransportMode.BUS -> Color(0xFF2563EB)
         TransportMode.TRAM -> Color(0xFFDC2626)
         TransportMode.METRO -> Color(0xFF7C3AED)
+        TransportMode.TRAIN -> Color(0xFFEA580C)
         TransportMode.FERRY -> Color(0xFF0891B2)
     }
     Box(
@@ -1848,12 +1880,17 @@ private fun ghostColorHex(userId: String?): String =
 /** Compose color of a ghost (used in the detail card). */
 private fun ghostColor(userId: String?): Color = Color(ghostColorArgb(userId))
 
+private fun MapCameraState.toCameraPosition(): CameraPosition = CameraPosition.Builder()
+    .target(LatLng(latitude, longitude))
+    .zoom(zoom)
+    .bearing(bearing)
+    .tilt(tilt)
+    .build()
+
 private const val MIN_ZOOM = 3.0
 private const val MAX_ZOOM = 19.0
 private const val INITIAL_ZOOM = 15.0
 private const val FOLLOW_ZOOM = 16.0
-private const val CAMERA_MOVE_THRESHOLD_METERS = 25.0
-
 /** City-view camera used until the first location fix arrives. */
 private val DEFAULT_PRE_FIX_CAMERA = LatLng(45.0703, 7.6869)
 

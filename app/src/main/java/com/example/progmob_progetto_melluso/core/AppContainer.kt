@@ -131,7 +131,7 @@ object AppContainer {
     }
 
     /**
-     * User preferences backed by Jetpack DataStore (spec §5.4): anonymous mode,
+     * User preferences backed by Jetpack DataStore (the preferences requirement): anonymous mode,
      * path visibility and the profile avatar, all keyed per signed-in user.
      */
     fun userPreferencesRepository(context: Context): UserPreferencesRepository {

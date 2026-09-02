@@ -6,7 +6,7 @@ import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 /**
  * Pure proximity helper shared by the live visit detection (recording pipeline)
  * and the journal backfill: no storage, no side effects, deterministic inputs
- * so it is unit-testable (spec §7.3).
+ * so it is unit-testable (the POI proximity requirement).
  */
 object PoiProximity {
 
