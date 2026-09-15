@@ -65,7 +65,7 @@ interface TravelPoiVisitDao {
 
     /**
      * Removes a recorded visit from the journal without deleting the POI
-     * (spec §7.3: the journal stays editable).
+     * (the POI proximity requirement: the journal stays editable).
      */
     @Delete
     suspend fun delete(visit: TravelPoiVisitEntity)

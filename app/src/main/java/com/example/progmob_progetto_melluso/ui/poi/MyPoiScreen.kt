@@ -38,7 +38,7 @@ import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.ui.common.PoiImage
 
 /**
- * "My POIs" screen (spec §3.3): the points of interest the signed-in user
+ * "My POIs" screen (the POI-reporting requirement): the points of interest the signed-in user
  * added, with a removal action.
  *
  * How it works: the list comes from [MyPoiViewModel], which observes the

@@ -35,6 +35,6 @@ interface StepRepository {
     /** Live total steps of the active travel (0 when none is ongoing). */
     fun observeActiveTravelSteps(): Flow<Long>
 
-    /** Live total distance in meters of the active travel (0 when none is ongoing). */
+    /** Live pedometer distance in meters of the active travel (0 when none is ongoing). */
     fun observeActiveTravelDistance(): Flow<Double>
 }

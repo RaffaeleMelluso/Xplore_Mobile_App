@@ -26,7 +26,7 @@ import kotlinx.coroutines.sync.withLock
  * The trip is NOT closed silently here anymore: when the user reopens the app
  * somewhere else (or days later), [TravelStaleness] detects the stale trip in
  * the UI layer and the user is ASKED whether the vacation is still ongoing
- * before the trip is closed (spec §7.1, confirmed close instead of silent).
+ * before the trip is closed (the travel lifecycle requirement, confirmed close instead of silent).
  *
  * @param travelDao DAO for the travels table.
  * @param pathPointDao DAO for the recorded path points.
@@ -123,7 +123,7 @@ class TravelRepositoryImpl(
             }
 
             // 4. Spatial AND temporal filters relative to the last recorded
-            //    point (spec §7.2): a point is stored only after BOTH a
+            //    point (the path-recording requirement): a point is stored only after BOTH a
             //    meaningful movement and a minimum time interval. The spatial
             //    threshold grows with the average accuracy error of the two
             //    fixes, so jitter smaller than the GPS uncertainty never
@@ -147,7 +147,7 @@ class TravelRepositoryImpl(
 
             // 5. Store the point; the first one becomes the trip anchor. Then
             //    check the POI geofence: every POI within the configured radius
-            //    gets a visit in the travel journal (spec §7.3, automatic).
+            //    gets a visit in the travel journal (the POI proximity requirement, automatic).
             val point = newPathPoint(activeTravel.id, sample)
             pathPointDao.insert(point)
             detectVisitsNear(activeTravel.id, sample)

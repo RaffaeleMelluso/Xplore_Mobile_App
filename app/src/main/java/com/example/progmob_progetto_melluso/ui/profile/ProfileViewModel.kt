@@ -4,20 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.progmob_progetto_melluso.core.preferences.ThemeMode
 import com.example.progmob_progetto_melluso.core.preferences.UserPreferencesRepository
-import com.example.progmob_progetto_melluso.data.dao.StatsDao
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import com.example.progmob_progetto_melluso.stats.StatsRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel of the Profile screen (spec §5.4 + NFR privacy).
+ * ViewModel of the Profile screen (the preferences requirement + NFR privacy).
  *
  * How it works: it combines the DataStore preferences (anonymous mode, path
  * visibility, avatar) with the reactive Room statistics into a single
@@ -26,49 +21,12 @@ import kotlinx.coroutines.launch
  */
 class ProfileViewModel(
     private val preferencesRepository: UserPreferencesRepository,
-    private val statsDao: StatsDao,
-    private val userIdProvider: () -> String = { "local-user" }
+    private val statsRepository: StatsRepository
 ) : ViewModel() {
-
-    // The account the statistics belong to. Captured at construction time: the
-    // ViewModel is recreated after a sign-in, so it always reflects the
-    // CURRENT user and switching account empties the tiles.
-    private val userId = userIdProvider()
-
-    /** Distinct local dates (in the device timezone) present in the GPS trace. */
-    private val activityDays: kotlinx.coroutines.flow.Flow<Int> = statsDao.pointTimestamps(userId).map { timestamps ->
-        val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-            timeZone = TimeZone.getDefault()
-        }
-        if (timestamps.isEmpty()) {
-            0
-        } else {
-            timestamps.map { formatter.format(Date(it)) }.distinct().size
-        }
-    }
-
-    /** Aggregated statistics flow (the room flows are combined in pairs). */
-    private val statsFlow = combine(
-        combine(statsDao.totalSteps(userId), activityDays, statsDao.poisVisited(userId)) { steps, days, pois ->
-            Triple(steps, days, pois)
-        },
-        combine(statsDao.citiesVisited(userId), statsDao.totalDistanceMeters(userId), statsDao.travelsCount(userId)) { cities, distance, travels ->
-            Triple(cities, distance, travels)
-        }
-    ) { first, second ->
-        ProfileStatistics(
-            totalSteps = first.first,
-            activityDays = first.second,
-            poisVisited = first.third,
-            citiesVisited = second.first,
-            totalDistanceMeters = second.second,
-            travelsCount = second.third
-        )
-    }
 
     val uiState: StateFlow<ProfileUiState> = combine(
         preferencesRepository.preferences,
-        statsFlow
+        statsRepository.observeStatistics()
     ) { preferences, stats ->
         ProfileUiState(
             anonymous = preferences.anonymous,

@@ -178,7 +178,7 @@ class TravelRepositoryImplTest {
 
     /**
      * Verifica che i filtri spaziale e temporale siano combinati con semantica
-     * AND (spec §7.2): uno spostamento sufficiente ma troppo ravvicinato nel
+     * AND (the path-recording requirement): uno spostamento sufficiente ma troppo ravvicinato nel
      * tempo rispetto all'ultimo punto NON viene registrato.
      */
     @Test

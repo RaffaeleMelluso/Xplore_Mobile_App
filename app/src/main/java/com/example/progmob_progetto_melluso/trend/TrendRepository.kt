@@ -3,7 +3,7 @@ package com.example.progmob_progetto_melluso.trend
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Single source of truth for the trends page (spec §3.4 "recommendations
+ * Single source of truth for the trends page (the recommendations requirement "recommendations
  * based on the aggregation of other travelers' data").
  *
  * How it works: the rankings are computed from the REAL community votes

@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.progmob_progetto_melluso.R
+import com.example.progmob_progetto_melluso.stats.ProfileStatistics
 import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.core.preferences.ThemeMode
 import java.io.File
@@ -77,8 +78,7 @@ fun ProfileScreen(
     val viewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(
             preferencesRepository = AppContainer.userPreferencesRepository(context),
-            statsDao = AppContainer.statsDao(context),
-            userIdProvider = { AppContainer.currentUserId() }
+            statsRepository = AppContainer.statsRepository(context)
         )
     )
     val uiState by viewModel.uiState.collectAsState()
@@ -334,7 +334,7 @@ private fun ThemeOption(
     }
 }
 
-/** Privacy toggles (spec §5.4 + NFR): anonymous mode and path visibility. */
+/** Privacy toggles (the preferences requirement + NFR): anonymous mode and path visibility. */
 @Composable
 private fun PrivacySection(
     anonymous: Boolean,

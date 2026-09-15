@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Single source of truth for the points of interest catalog.
  *
- * Why it exists (spec §3.3 "POI reporting"): the user must be able to insert
+ * Why it exists (the POI-reporting requirement "POI reporting"): the user must be able to insert
  * categorized, described points of interest that immediately join the same
  * pool the map, the ghosts and the trends page read from. Storing a POI here
  * is enough for the sync: every screen observes the same Room table through

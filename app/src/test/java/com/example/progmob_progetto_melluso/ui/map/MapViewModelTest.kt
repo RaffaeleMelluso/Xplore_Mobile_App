@@ -155,7 +155,7 @@ class MapViewModelTest {
     }
 
     /**
-     * Verifica che l'inserimento di un POI da parte dell'utente (spec §3.3,
+     * Verifica che l'inserimento di un POI da parte dell'utente (the POI-reporting requirement,
      * demo senza controlli) passi dal repository del catalogo: il flusso
      * reattivo aggiorna mappa, ghost e trends senza altro cablaggio.
      */

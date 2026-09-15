@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.Flow
  * - expose the live user position coming from the sensor layer;
  * - expose the ordered path of the active travel (from [TravelRepository]);
  * - expose the points of interest cached in Room;
- * - expose the simulated ghosts (spec §6) anchored to the user position;
+ * - expose the simulated ghosts (the ghost visibility requirement) anchored to the user position;
  * - seed the POI table on first launch.
  */
 interface MapRepository {
@@ -46,7 +46,7 @@ interface MapRepository {
      */
     fun observeTravelCities(): Flow<List<TravelCityEntity>>
 
-    /** Emits the simulated travelers with their routes (spec §5.3bis). */
+    /** Emits the simulated travelers with their routes (the local ghost simulation requirement). */
     fun observeGhosts(): Flow<List<Ghost>>
 
     /**

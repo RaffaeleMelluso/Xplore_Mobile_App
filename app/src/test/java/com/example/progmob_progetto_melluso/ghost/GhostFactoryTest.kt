@@ -14,7 +14,7 @@ import org.junit.Test
  *
  * The factory simulates other travelers along realistic routes in two demo
  * zones (Turin / Cerignola). These tests verify determinism, zone selection,
- * the bounded visibility (radius filter + marker cap, checklist §6) and the
+ * the bounded visibility (radius filter + marker cap, the map visibility limits) and the
  * motion of the online ghosts.
  */
 class GhostFactoryTest {
@@ -59,7 +59,7 @@ class GhostFactoryTest {
     @Test
     fun tick_filtersFarGhostsByVisibilityRadius() {
         // Ghosts whose marker is more than the visibility radius away from the
-        // user are dropped before returning (proximity filtering, checklist §6).
+        // user are dropped before returning (proximity filtering, the map visibility limits).
         val factory = GhostFactory(
             config = TravelConfig(ghostVisibilityRadiusMeters = 1.0) // tiny radius
         )

@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -29,6 +30,8 @@ import com.example.progmob_progetto_melluso.ui.login.LoginScreen
 import com.example.progmob_progetto_melluso.ui.login.LoginViewModel
 import com.example.progmob_progetto_melluso.ui.login.LoginViewModelFactory
 import com.example.progmob_progetto_melluso.ui.theme.ProgMob_Progetto_MellusoTheme
+import com.example.progmob_progetto_melluso.ui.theme.ThemeViewModel
+import com.example.progmob_progetto_melluso.ui.theme.ThemeViewModelFactory
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -143,12 +146,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Theme: the user-selected mode (System/Light/Dark) is read from
-            // DataStore per user and resolved app-wide here; SYSTEM follows the
-            // device night/day setting.
-            val prefsRepository = remember { AppContainer.userPreferencesRepository(context) }
-            val userPrefs by prefsRepository.preferences.collectAsState(initial = null)
-            val isDarkTheme = when (userPrefs?.themeMode ?: ThemeMode.SYSTEM) {
+            // Theme: the user-selected mode (System/Light/Dark) is exposed by a
+            // dedicated ViewModel, so the View never reads the DataStore
+            // repository directly; SYSTEM follows the device night/day setting.
+            val themeFactory = remember {
+                ThemeViewModelFactory(AppContainer.userPreferencesRepository(context))
+            }
+            val themeViewModel: ThemeViewModel = viewModel(factory = themeFactory)
+            val themeMode by themeViewModel.themeMode.collectAsState()
+            val isDarkTheme = when (themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()

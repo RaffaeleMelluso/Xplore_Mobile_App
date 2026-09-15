@@ -79,7 +79,7 @@ class MapRepositoryImpl(
             tickerFlow(),
             // The POIs feed the ghost cards: each visit shows the REAL POI id
             // and its live community score, so the ghosts display exactly the
-            // votes the trends page aggregates (spec §5.3bis, synced demo).
+            // votes the trends page aggregates (the local ghost simulation requirement, synced demo).
             poiDao.allPois()
         ) { location, _, pois ->
             ghostSimulator.tick(

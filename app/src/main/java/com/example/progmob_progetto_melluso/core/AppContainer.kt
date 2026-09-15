@@ -17,6 +17,7 @@ import com.example.progmob_progetto_melluso.poi.PoiRepositoryImpl
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepositoryImpl
 import com.example.progmob_progetto_melluso.service.LocationUpdates
+import com.example.progmob_progetto_melluso.stats.StatsRepository
 import com.example.progmob_progetto_melluso.step.StepRepository
 import com.example.progmob_progetto_melluso.step.StepRepositoryImpl
 import com.example.progmob_progetto_melluso.travel.TravelCityDetector
@@ -131,7 +132,7 @@ object AppContainer {
     }
 
     /**
-     * User preferences backed by Jetpack DataStore (spec §5.4): anonymous mode,
+     * User preferences backed by Jetpack DataStore (the preferences requirement): anonymous mode,
      * path visibility and the profile avatar, all keyed per signed-in user.
      */
     fun userPreferencesRepository(context: Context): UserPreferencesRepository {
@@ -140,6 +141,14 @@ object AppContainer {
 
     /** Aggregate statistics DAO over the travel tables (profile stats). */
     fun statsDao(context: Context): StatsDao = database(context).statsDao()
+
+    /**
+     * Statistics repository: aggregates the travel metrics (steps, active days,
+     * visited POIs/cities, distance) from the Room queries, scoped to the
+     * signed-in user. The Profile screen observes it through its ViewModel.
+     */
+    fun statsRepository(context: Context): StatsRepository =
+        StatsRepository(statsDao(context)) { currentUserId() }
 
     /**
      * Pedometer repository: consumes the hardware step sensor readings and

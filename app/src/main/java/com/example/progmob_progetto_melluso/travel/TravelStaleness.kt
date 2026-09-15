@@ -21,7 +21,7 @@ enum class StaleReason {
 /**
  * Pure evaluation of \"is this ongoing travel still plausible?\".
  *
- * Why it exists (spec §7.1): when the user reopens the app somewhere else
+ * Why it exists (the travel lifecycle requirement): when the user reopens the app somewhere else
  * (or days later), the active trip must NOT be closed silently in the
  * background — the user is asked whether the vacation is still ongoing first.
  * This object only computes the signal; the UI turns the answer into the

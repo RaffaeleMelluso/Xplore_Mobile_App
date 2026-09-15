@@ -9,7 +9,7 @@ import com.example.progmob_progetto_melluso.journal.JournalVisit
  * A simulated traveler ("ghost") with everything the map needs to render them
  * and the journal-like detail shown when the marker is tapped.
  *
- * How it works: there is no backend yet (spec §5.3bis), so each ghost is fully
+ * How it works: there is no backend yet (the local ghost simulation requirement), so each ghost is fully
  * described here. The marker ([marker]) carries the ghost's current position
  * on the map; [path] is the ordered list of (lat, lon) waypoints of its whole
  * route, drawn as a polyline so the user sees a realistic journey. The online

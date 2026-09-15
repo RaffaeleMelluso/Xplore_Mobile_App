@@ -2,6 +2,7 @@ package com.example.progmob_progetto_melluso.travel
 
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -78,6 +79,34 @@ class PathSegmenterTest {
         val segments = PathSegmenter.split(points)
 
         assertEquals(1, segments.size)
+    }
+
+    @Test
+    fun distanceMeters_sumsContinuousGpsSegments() {
+        val points = listOf(
+            point(0.0, 0.0, 0L),
+            point(0.0, 0.001, 20_000L)
+        )
+
+        val distance = PathSegmenter.distanceMeters(points)
+
+        assertEquals(111.0, distance, 2.0)
+    }
+
+    @Test
+    fun distanceMeters_ignoresUntrackedJump() {
+        val points = listOf(
+            point(0.0, 0.0, 0L),
+            point(0.0, 0.001, 20_000L),
+            point(0.0, 0.010, 630_000L),
+            point(0.0, 0.011, 650_000L)
+        )
+
+        val distance = PathSegmenter.distanceMeters(points)
+
+        // Only the two tracked ~111 m segments are counted; the ~1 km jump
+        // during the interruption is deliberately excluded.
+        assertTrue(distance in 215.0..230.0)
     }
 
     @Test

@@ -49,7 +49,7 @@ private val TrendPeriod.labelRes: Int
     }
 
 /**
- * Trends screen (spec §3.4): what other travelers are voting, ranked per
+ * Trends screen (the recommendations requirement): what other travelers are voting, ranked per
  * period (day/week/month/year) and per scope (single attractions or cities).
  *
  * How it works: the screen only collects [TrendUiState] and emits the user's

@@ -2,7 +2,14 @@ package com.example.progmob_progetto_melluso.data.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import kotlinx.coroutines.flow.Flow
+
+/** Per-travel pedometer distance used to merge GPS and step measurements. */
+data class TravelStepDistance(
+    val travelId: Long,
+    val distanceMeters: Double
+)
 
 /**
  * Aggregate read queries over several tables, used to show the user's
@@ -11,26 +18,43 @@ import kotlinx.coroutines.flow.Flow
  * How it works: each query reads a single number (or the raw timestamps needed
  * to bucket the activity days in the ViewModel) across all travels, exposed as
  * a [Flow] so the Profile screen re-renders as new data is recorded.
- * The `step_*` tables are still unused by the pedometer, so the step/distance
- * totals are 0 until that feature lands. Every query is scoped to ONE user
+ * Distance statistics merge the per-travel pedometer estimate with the GPS
+ * path, while every query is scoped to ONE user
  * (joined through `travels.userId`), so the statistics follow the account:
  * switching user empties the tiles.
  */
 @Dao
 interface StatsDao {
-    // Total steps of the user's trips (0 until the pedometer is implemented).
+    // Total steps of the user's trips.
     @Query(
         "SELECT COALESCE(SUM(s.steps), 0) FROM step_daily_summaries s " +
             "JOIN travels t ON t.id = s.travelId WHERE t.userId = :userId"
     )
     fun totalSteps(userId: String): Flow<Long>
 
-    // Total distance in meters of the user's trips (0 until the pedometer).
+    // Total distance in meters from the pedometer summaries. The Profile
+    // ViewModel merges this per travel with the corresponding GPS path.
     @Query(
         "SELECT COALESCE(SUM(s.distanceMeters), 0) FROM step_daily_summaries s " +
             "JOIN travels t ON t.id = s.travelId WHERE t.userId = :userId"
     )
     fun totalDistanceMeters(userId: String): Flow<Double>
+
+    /** Pedometer distance grouped by travel for GPS/pedometer merging. */
+    @Query(
+        "SELECT s.travelId AS travelId, COALESCE(SUM(s.distanceMeters), 0) AS distanceMeters " +
+            "FROM step_daily_summaries s JOIN travels t ON t.id = s.travelId " +
+            "WHERE t.userId = :userId GROUP BY s.travelId"
+    )
+    fun travelStepDistances(userId: String): Flow<List<TravelStepDistance>>
+
+    /** GPS points grouped by travel, ordered so each path can be measured. */
+    @Query(
+        "SELECT p.* FROM travel_path_points p " +
+            "JOIN travels t ON t.id = p.travelId WHERE t.userId = :userId " +
+            "ORDER BY p.travelId ASC, p.recordedAtUtcMillis ASC"
+    )
+    fun travelPathPoints(userId: String): Flow<List<TravelPathPointEntity>>
 
     // Raw UTC timestamps of the user's GPS points, so the ViewModel can bucket
     // them into distinct local dates ("activity days").

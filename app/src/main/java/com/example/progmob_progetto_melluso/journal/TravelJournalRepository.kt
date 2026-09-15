@@ -57,19 +57,20 @@ data class TravelJournal(
     val visits: List<JournalVisit>,
     // The recorded path, drawn as a small route preview in the detail.
     val pathPoints: List<JournalPathPoint> = emptyList(),
-    // The transport segments reported during the trip (spec §3.1).
+    // The transport segments reported during the trip (the transport-reporting requirement).
     val transports: List<JournalTransport> = emptyList(),
     // Total steps counted by the pedometer during the trip (0 until the
     // sensor records; the trip may predate the feature).
     val steps: Long = 0,
-    // Total distance in meters estimated from the steps during the trip.
+    // Total distance in meters, using the best available value from the GPS
+    // path and the pedometer estimate (without double counting their overlap).
     val distanceMeters: Double = 0.0
 )
 
 /**
  * Single source of truth for the travel journal ("libretto").
  *
- * Responsibilities (spec §7 + checklist §2/§4):
+ * Responsibilities:
  * - expose the list of travels and the mutable detail of one travel as flows;
  * - start/stop the active travel (delegating to [com.example.progmob_progetto_melluso.travel.TravelRepository]);
  * - edit a travel after the trip (title + description "what I saw");
@@ -95,7 +96,11 @@ interface TravelJournalRepository {
      */
     fun observeTravelSteps(travelId: Long): Flow<Long>
 
-    /** Live total distance in meters of one travel (see [observeTravelSteps]). */
+    /**
+     * Live total distance in meters of one travel. The implementation chooses
+     * the greater of the GPS path distance and pedometer estimate so vehicle
+     * movement is included without adding the same walking distance twice.
+     */
     fun observeTravelDistance(travelId: Long): Flow<Double>
 
     /** Starts a new travel (single active travel). @return the active travel id. */

@@ -137,7 +137,7 @@ object DemoGhostVisits {
 
     /**
      * The transport segments every ghost reported, shown as examples in the
-     * ghost cards (same model as the travel journal, spec §3.1): the demo
+     * ghost cards (same model as the travel journal, the transport-reporting requirement): the demo
      * travelers use buses, trams, the metro, ferries and walk, with real line
      * numbers of the cities they move in.
      */

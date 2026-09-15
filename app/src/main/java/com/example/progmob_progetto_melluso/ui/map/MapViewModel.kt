@@ -8,6 +8,7 @@ import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.poi.PoiRepository
 import com.example.progmob_progetto_melluso.poi.PoiVoteRepository
 import com.example.progmob_progetto_melluso.step.StepRepository
+import com.example.progmob_progetto_melluso.travel.TravelDistanceCalculator
 import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelConfig
 import com.example.progmob_progetto_melluso.travel.TravelStaleness
@@ -192,8 +193,16 @@ class MapViewModel(
         .combine(stepRepository.observeActiveTravelSteps()) { state, steps ->
             state.copy(liveSteps = steps)
         }
-        .combine(stepRepository.observeActiveTravelDistance()) { state, distance ->
-            state.copy(liveDistanceMeters = distance)
+        .combine(stepRepository.observeActiveTravelDistance()) { state, pedometerDistance ->
+            // GPS covers vehicle movement; the pedometer covers movement when
+            // GPS is sparse. Use the greater value to avoid counting the same
+            // walking segment twice.
+            state.copy(
+                liveDistanceMeters = TravelDistanceCalculator.calculate(
+                    pedometerDistance,
+                    state.pathPoints
+                )
+            )
         }
         .stateIn(
             scope = viewModelScope,
@@ -229,7 +238,7 @@ class MapViewModel(
 
     /**
      * Marks a POI's geofence sheet as already shown during this trip, so it
-     * will not reopen until a new travel begins (spec §7.3, one trigger per
+     * will not reopen until a new travel begins (the POI proximity requirement, one trigger per
      * trip for each place).
      */
     fun markGeofenceShown(poiId: Long) {
@@ -275,7 +284,7 @@ class MapViewModel(
     }
 
     /**
-     * Stores a user-created POI (spec §3.3, no moderation in the demo). The
+     * Stores a user-created POI (the POI-reporting requirement, no moderation in the demo). The
      * reactive POI flow re-emits, so the new marker appears on the map and
      * the POI joins the trends pool without any extra wiring.
      */
