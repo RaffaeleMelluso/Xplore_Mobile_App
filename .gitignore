@@ -33,3 +33,5 @@ captures/
 .artifacts/
 **/.artifacts/
 app/*.md
+*.html
+*.md
