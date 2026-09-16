@@ -121,6 +121,13 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        // Platform grants, not stored preferences: a refusal during the first
+        // run can be reconsidered here, so the first-run pages never become the
+        // only chance to enable a feature.
+        PermissionsSection(modifier = Modifier.fillMaxWidth())
+
+        Spacer(Modifier.height(24.dp))
+
         StatisticsSection(stats = uiState.stats, modifier = Modifier.fillMaxWidth())
 
         Spacer(Modifier.height(24.dp))

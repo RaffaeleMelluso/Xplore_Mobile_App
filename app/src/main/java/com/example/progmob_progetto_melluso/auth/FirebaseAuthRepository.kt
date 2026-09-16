@@ -277,28 +277,7 @@ class FirebaseAuthRepository(
     private fun Throwable.toAuthError(): AuthError =
         when (this) {
             is FirebaseAuthException ->
-                when (errorCode) {
-                    "invalid-credential", "user-not-found", "wrong-password" ->
-                        AuthError.InvalidCredentials
-
-                    "invalid-email" ->
-                        AuthError.InvalidEmail
-
-                    "email-already-in-use" ->
-                        AuthError.EmailAlreadyInUse
-
-                    "weak-password" ->
-                        AuthError.WeakPassword
-
-                    "user-disabled" ->
-                        AuthError.UserDisabled
-
-                    "too-many-requests" ->
-                        AuthError.TooManyRequests
-
-                    else ->
-                        AuthError.Unknown(this)
-                }
+                firebaseErrorCodeToAuthError(errorCode) ?: AuthError.Unknown(this)
 
             is FirebaseNetworkException, is IOException ->
                 AuthError.Network
@@ -306,4 +285,60 @@ class FirebaseAuthRepository(
             else ->
                 AuthError.Unknown(this)
         }
+}
+
+/**
+ * Translates a Firebase Auth error code into a domain [AuthError].
+ *
+ * Why the code is normalised before matching: the Android SDK reports codes in
+ * UPPER_SNAKE_CASE with an `ERROR_` prefix (`ERROR_WRONG_PASSWORD`,
+ * `ERROR_INVALID_LOGIN_CREDENTIALS`), while other Firebase surfaces document the
+ * hyphenated lower case form (`wrong-password`). Stripping the prefix and
+ * folding underscores into dashes makes both spellings — and the newer
+ * comprehensive `INVALID_LOGIN_CREDENTIALS` — land on the right case instead of
+ * falling through to [AuthError.Unknown], which is what made every failure look
+ * identical to the user.
+ *
+ * @param errorCode the provider code, or null when the provider sent none.
+ * @return the matching domain error, or null when the code is not recognised.
+ */
+internal fun firebaseErrorCodeToAuthError(errorCode: String?): AuthError? {
+    val normalizedCode = errorCode
+        ?.trim()
+        ?.lowercase()
+        ?.removePrefix("error_")
+        ?.replace('_', '-')
+        ?: return null
+
+    return when (normalizedCode) {
+        // The modern provider answer for a bad pair, plus the legacy split codes.
+        "invalid-credential",
+        "invalid-credentials",
+        "invalid-login-credentials",
+        "user-not-found",
+        "wrong-password",
+        "user-mismatch" ->
+            AuthError.InvalidCredentials
+
+        "invalid-email", "missing-email" ->
+            AuthError.InvalidEmail
+
+        "email-already-in-use", "email-exists" ->
+            AuthError.EmailAlreadyInUse
+
+        "weak-password" ->
+            AuthError.WeakPassword
+
+        "user-disabled" ->
+            AuthError.UserDisabled
+
+        "too-many-requests" ->
+            AuthError.TooManyRequests
+
+        "network-request-failed" ->
+            AuthError.Network
+
+        else ->
+            null
+    }
 }

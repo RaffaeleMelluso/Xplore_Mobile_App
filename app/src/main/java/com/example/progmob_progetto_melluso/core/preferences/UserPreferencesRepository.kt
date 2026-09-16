@@ -57,9 +57,33 @@ class UserPreferencesRepository(
             )
         }
 
+    /**
+     * Whether the first-run onboarding (the pages that explain and request the
+     * Android permissions) has been accepted on this installation.
+     *
+     * Why it is NOT keyed per user like everything else here: the pages explain
+     * permissions that belong to the app installation and not to an account,
+     * and the value must be readable BEFORE signing in, when no uid exists yet.
+     */
+    val onboardingCompleted: Flow<Boolean> = store.data
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
+        .map { prefs -> prefs[onboardingCompletedKey] ?: false }
+
     /** Sets the anonymous-mode preference and persists it (per user). */
     suspend fun setAnonymous(value: Boolean) {
         store.edit { it[anonymousKey()] = value }
+    }
+
+    /**
+     * Persists the outcome of the first-run pages.
+     *
+     * @param completed true once the user went through them and answered the
+     *   Android permission dialogs; false puts the pages back on screen.
+     */
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        store.edit { prefs -> prefs[onboardingCompletedKey] = completed }
     }
 
     /** Sets the travel-path visibility preference and persists it (per user). */
@@ -84,11 +108,15 @@ class UserPreferencesRepository(
     private fun avatarKey() = stringPreferencesKey(KEY_PREFIX_AVATAR + userIdProvider())
     private fun themeModeKey() = stringPreferencesKey(KEY_PREFIX_THEME + userIdProvider())
 
+    // Device-scoped, not per user: see [onboardingCompleted].
+    private val onboardingCompletedKey = booleanPreferencesKey(KEY_ONBOARDING_COMPLETED)
+
     private companion object {    /** Per-user key prefixes; the uid is appended at access time. */
     const val KEY_PREFIX_ANONYMOUS = "anonymous_mode_"
     const val KEY_PREFIX_SHOW_PATHS = "show_travel_paths_"
     const val KEY_PREFIX_AVATAR = "avatar_uri_"
     const val KEY_PREFIX_THEME = "theme_mode_"
+    const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
     }
 }
 
@@ -118,4 +146,4 @@ data class UserPreferences(
     val showTravelPaths: Boolean = true,
     val avatarUri: String? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM
-)
+)
