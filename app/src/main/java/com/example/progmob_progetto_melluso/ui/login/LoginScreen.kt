@@ -315,5 +315,6 @@ private fun AuthError.messageRes(): Int =
         AuthError.UserDisabled -> R.string.login_error_user_disabled
         AuthError.TooManyRequests -> R.string.login_error_too_many_requests
         AuthError.Network -> R.string.login_error_network
+        AuthError.NotConfigured -> R.string.login_error_not_configured
         is AuthError.Unknown -> R.string.login_error_unknown
     }

@@ -35,6 +35,17 @@ sealed class AuthError {
     data object Network : AuthError()
 
     /**
+     * The provider rejected the app, not the credentials: the signing
+     * certificate of this build is not registered for the OAuth client, or the
+     * ID token could not be issued for the configured web client.
+     *
+     * Why it needs its own case: no retry and no other password can fix it, so
+     * the generic message would send the user hunting for a credential problem
+     * that does not exist.
+     */
+    data object NotConfigured : AuthError()
+
+    /**
      * Any failure that does not map to a known case.
      *
      * @param cause the original provider/implementation exception, kept only

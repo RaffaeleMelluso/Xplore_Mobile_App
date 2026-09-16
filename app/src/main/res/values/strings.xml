@@ -27,6 +27,7 @@
     <string name="login_error_user_disabled">This account has been disabled.</string>
     <string name="login_error_too_many_requests">Too many attempts, please try again later.</string>
     <string name="login_error_network">Network error, please try again.</string>
+    <string name="login_error_not_configured">Google sign-in is not configured for this build. Add this build\u0027s signing certificate to the Firebase project.</string>
     <string name="login_error_unknown">Authentication failed.</string>
     <!-- Home navigation -->
     <string name="tab_map">Map</string>
@@ -204,4 +205,38 @@
     <string name="stat_cities_visited">Cities visited</string>
     <string name="stat_distance">Distance</string>
     <string name="stat_travels">Travels</string>
+
+    <!-- Permissions section: the second chance to grant what was refused -->
+    <string name="profile_permissions_section">Permissions</string>
+    <string name="profile_permissions_description">Grant these whenever you want: the app only uses them for what is written here.</string>
+    <string name="profile_permission_location_title">Your position</string>
+    <string name="profile_permission_location_desc">Draws your route, recognises the places you visit and shows the travellers around you.</string>
+    <string name="profile_permission_steps_title">Your steps</string>
+    <string name="profile_permission_steps_desc">Measures how far you walk, so your diary stays complete where the GPS signal is weak.</string>
+    <string name="profile_permission_notifications_title">Trip updates</string>
+    <string name="profile_permission_notifications_desc">Keeps your trip recording in the background and warns you near a place worth visiting.</string>
+    <string name="profile_permissions_grant">Grant</string>
+    <string name="profile_permissions_granted">Granted</string>
+    <string name="profile_permissions_open_settings">Open system settings</string>
+    <string name="profile_permissions_blocked_hint">Android is no longer showing the request. Enable it from the system settings of the app.</string>
+
+    <!-- First-run onboarding: the pages that explain the permissions -->
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_start">Start exploring</string>
+    <string name="onboarding_welcome_title">Welcome to Xplore</string>
+    <string name="onboarding_welcome_body">Turn every trip into a travel diary: the route you walked, the places you stopped at and the steps you took, all on one map.</string>
+    <string name="onboarding_location_title">Your position</string>
+    <string name="onboarding_location_body">Xplore reads your location to draw your route, to recognise the places you visit so you can vote on them, and to show the travellers around you.</string>
+    <string name="onboarding_location_note">Your position keeps being recorded with the screen off, so your route is never interrupted.</string>
+    <string name="onboarding_steps_title">Your steps</string>
+    <string name="onboarding_steps_body">The step counter measures how far you walk, so your diary stays complete even indoors or where the GPS signal is weak.</string>
+    <string name="onboarding_steps_note">The body-activity sensor only counts your steps: it records nothing else about your movement.</string>
+    <string name="onboarding_notifications_title">Trip updates</string>
+    <string name="onboarding_notifications_body">A discreet notification keeps your trip recording while the app is in the background, and warns you when you are close to a place worth visiting.</string>
+    <string name="onboarding_notifications_note">You can silence it from the system settings at any time.</string>
+    <string name="onboarding_privacy_title">Your trip, your rules</string>
+    <string name="onboarding_privacy_body">Show yourself to other travellers or go anonymous, and choose whether your routes can be seen. Your diary stays private and is stored on this device.</string>
+    <string name="onboarding_privacy_note">You can change both settings at any time from your profile.</string>
+    <string name="onboarding_permission_hint">Android will ask you to confirm this permission.</string>
 </resources>
