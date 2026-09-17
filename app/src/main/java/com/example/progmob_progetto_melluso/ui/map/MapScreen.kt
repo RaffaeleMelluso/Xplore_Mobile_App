@@ -128,7 +128,7 @@ import org.maplibre.geojson.Point
 /** OpenFreeMap vector style (free, no API key, no OSM tile-policy issues). */
 // internal so the journal's off-screen MapSnapshotter reuses the same style
 // (single source of truth for the OpenFreeMap tiles).
-internal const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+internal const val STYLE_URL = "https://styles.maptoolkit.org/street.json"
 
 /**
  * Map screen: MapLibre Native with OpenFreeMap vector tiles, the user position,
