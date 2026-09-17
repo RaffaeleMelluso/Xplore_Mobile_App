@@ -246,6 +246,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Publishes "the app is on screen" to the tracking service.
+     *
+     * How it works: the service keeps running with the screen off, so it cannot
+     * know by itself whether the user is looking at the app, and it needs that
+     * for two decisions: the automatic trip start is allowed only while the app
+     * is visible (a trip must never open from the background), and the sampling
+     * profile is the cheap one only when no trip runs AND the app is off screen
+     * (see TrackingMode). The ACTIVITY lifecycle is the right source for it: the
+     * signal stays correct on every home tab, not only while the map is
+     * composed.
+     */
+    override fun onStart() {
+        super.onStart()
+        TrackingService.setAppInForeground(true)
+    }
+
+    /** Clears the visibility signal when the app leaves the screen. */
+    override fun onStop() {
+        TrackingService.setAppInForeground(false)
+        super.onStop()
+    }
+
     companion object {
         private const val ROUTE_ONBOARDING = "onboarding"
         private const val ROUTE_LOGIN = "login"

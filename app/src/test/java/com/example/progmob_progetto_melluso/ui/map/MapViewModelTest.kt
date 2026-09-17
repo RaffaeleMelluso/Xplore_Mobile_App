@@ -12,6 +12,7 @@ import com.example.progmob_progetto_melluso.step.StepRepository
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.StaleReason
 import com.example.progmob_progetto_melluso.travel.TravelConfig
+import com.example.progmob_progetto_melluso.travel.TravelRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -29,6 +30,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
@@ -55,6 +57,13 @@ class MapViewModelTest {
         return repo
     }
 
+    /** Travel repository mock with the traveled-duration flow stubbed (0). */
+    private fun travelRepository(): TravelRepository {
+        val repo = mock<TravelRepository>()
+        whenever(repo.observeTraveledDuration(org.mockito.kotlin.any())).thenReturn(flowOf(0L))
+        return repo
+    }
+
     /**
      * Verifica che lo stato iniziale sia il placeholder di caricamento.
      */
@@ -63,7 +72,7 @@ class MapViewModelTest {
         val repository = mock<MapRepository>()
         whenever(repository.observeTravels()).thenReturn(flowOf(emptyList()))
         val viewModel = MapViewModel(
-            repository, mock<PoiRepository>(), mock<PoiVoteRepository>(), stepRepository()
+            repository, mock<PoiRepository>(), mock<PoiVoteRepository>(), stepRepository(), travelRepository()
         )
         assertTrue(viewModel.uiState.value.isLoading)
     }
@@ -97,7 +106,7 @@ class MapViewModelTest {
         val voteRepository = mock<PoiVoteRepository>()
         whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
 
-        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository())
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository())
         // Subscribe so the WhileSubscribed StateFlow starts collecting upstream.
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
@@ -126,7 +135,7 @@ class MapViewModelTest {
         val voteRepository = mock<PoiVoteRepository>()
         whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
 
-        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository())
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository())
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
 
@@ -134,6 +143,62 @@ class MapViewModelTest {
         advanceUntilIdle()
 
         verify(voteRepository).votePoi(1L, 1)
+    }
+
+    /**
+     * Verifica che la durata traveled del viaggio attivo arrivi nello stato
+     * attraverso il TravelRepository (il timer del trip-info), senza alcun
+     * accesso diretto al repository dallo schermo (MVVM separation).
+     */
+    @Test
+    fun uiState_exposesActiveTraveledDuration() = runTest(dispatcher) {
+        val repository = mock<MapRepository>()
+        whenever(repository.observeCurrentLocation()).thenReturn(flowOf(LocationSample(45.0, 7.0, 100L, 5f)))
+        whenever(repository.observeActivePath()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observePois()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observeGhosts()).thenReturn(flowOf(emptyList()))
+        val active = TravelEntity(id = 1L, startUtcMillis = 100L, endUtcMillis = null, travelTimeZoneId = "UTC", title = null)
+        whenever(repository.observeTravels()).thenReturn(flowOf(listOf(active)))
+        whenever(repository.observeTravelCities()).thenReturn(flowOf(emptyList()))
+        val voteRepository = mock<PoiVoteRepository>()
+        whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
+        val travelRepo = mock<TravelRepository>()
+        whenever(travelRepo.observeTraveledDuration(1L)).thenReturn(flowOf(4_200L))
+
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepo)
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        advanceUntilIdle()
+
+        assertEquals(4_200L, viewModel.uiState.value.activeTraveledMillis)
+    }
+
+    /**
+     * Verifica che l'avvio manuale dalla mappa passi dal ViewModel al
+     * repository: e' il repository ad aprire anche il cronometro della durata
+     * insieme al viaggio, quindi lo schermo non incatena due chiamate.
+     */
+    @Test
+    fun startTravelFromMap_startsTravel() = runTest(dispatcher) {
+        val repository = mock<MapRepository>()
+        whenever(repository.observeCurrentLocation()).thenReturn(flowOf(LocationSample(45.0, 7.0, 100L, 5f)))
+        whenever(repository.observeActivePath()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observePois()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observeGhosts()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observeTravels()).thenReturn(flowOf(emptyList()))
+        whenever(repository.observeTravelCities()).thenReturn(flowOf(emptyList()))
+        val voteRepository = mock<PoiVoteRepository>()
+        whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
+        val travelRepo = mock<TravelRepository>()
+
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepo)
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        advanceUntilIdle()
+
+        viewModel.startTravelFromMap()
+        advanceUntilIdle()
+
+        verify(travelRepo).startTravel()
+        verify(travelRepo, never()).stopTravel()
     }
 
     /**
@@ -148,7 +213,7 @@ class MapViewModelTest {
         // observeTravels() flow is not null.
         whenever(repository.observeTravels()).thenReturn(flowOf(emptyList()))
         val voteRepository = mock<PoiVoteRepository>()
-        MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository())
+        MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository())
         advanceUntilIdle()
         verify(repository).ensurePoiSeed()
         verify(voteRepository).ensureDemoVotes()
@@ -172,7 +237,7 @@ class MapViewModelTest {
         whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
         val poiRepository = mock<PoiRepository>()
 
-        val viewModel = MapViewModel(repository, poiRepository, voteRepository, stepRepository())
+        val viewModel = MapViewModel(repository, poiRepository, voteRepository, stepRepository(), travelRepository())
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
 
@@ -202,7 +267,7 @@ class MapViewModelTest {
         val voteRepository = mock<PoiVoteRepository>()
         whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
 
-        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository())
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository())
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
 
@@ -233,7 +298,7 @@ class MapViewModelTest {
         val voteRepository = mock<PoiVoteRepository>()
         whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
 
-        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository())
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository())
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
 
@@ -277,7 +342,8 @@ class MapViewModelTest {
         // Fixed clock right after the trip start: the trip is recent, so the
         // staleness must come from the DISTANCE trigger, not the age one.
         val viewModel = MapViewModel(
-            repository, mock<PoiRepository>(), voteRepository, stepRepository(), TravelConfig(), { 200L }
+            repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository(),
+            TravelConfig(), { 200L }
         )
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
@@ -313,7 +379,7 @@ class MapViewModelTest {
         val voteRepository = mock<PoiVoteRepository>()
         whenever(voteRepository.observeMyVotes()).thenReturn(flowOf(emptyList()))
 
-        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository())
+        val viewModel = MapViewModel(repository, mock<PoiRepository>(), voteRepository, stepRepository(), travelRepository())
         backgroundScope.launch { viewModel.uiState.collect { } }
         advanceUntilIdle()
 

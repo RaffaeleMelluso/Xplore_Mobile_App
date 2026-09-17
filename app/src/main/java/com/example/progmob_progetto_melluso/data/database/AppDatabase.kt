@@ -19,6 +19,7 @@ import com.example.progmob_progetto_melluso.data.dao.TravelTransportDao
 import com.example.progmob_progetto_melluso.data.dao.UserProfileDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelCityDao
+import com.example.progmob_progetto_melluso.data.dao.TravelSessionBlockDao
 import com.example.progmob_progetto_melluso.data.entities.GhostEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiVoteEntity
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
@@ -33,6 +34,7 @@ import com.example.progmob_progetto_melluso.data.entities.TrendingDestinationTim
 import com.example.progmob_progetto_melluso.data.entities.UserProfileEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelSessionBlockEntity
 
 @Database(
     entities = [
@@ -49,9 +51,10 @@ import com.example.progmob_progetto_melluso.data.entities.TravelCityEntity
         PoiVoteEntity::class,
         PoiEntity::class,
         GhostEntity::class,
-        TravelCityEntity::class
+        TravelCityEntity::class,
+        TravelSessionBlockEntity::class
     ],
-    version = 11
+    version = 12
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun travelDao(): TravelDao
@@ -67,9 +70,41 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun poiDao(): PoiDao
     abstract fun ghostDao(): GhostDao
     abstract fun travelCityDao(): TravelCityDao
+    abstract fun travelSessionBlockDao(): TravelSessionBlockDao
     abstract fun statsDao(): StatsDao
 
     companion object {
+        /**
+         * v11 -> v12: traveled-duration session blocks.
+         *
+         * What it changes:
+         * - `travel_session_blocks` table: one row per open-app window of a
+         *   travel. The traveled duration of a trip is the sum of its blocks
+         *   (ongoing trips add the still-running segment), which excludes
+         *   the time the app stayed closed — the old end-start wall-clock
+         *   duration counted days of closed app as travel time.
+         *
+         * Purely additive: existing travels keep their identity, all their
+         * blocks start empty (duration 0 until new sessions are recorded).
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `travel_session_blocks` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`travelId` INTEGER NOT NULL, " +
+                        "`fromUtcMillis` INTEGER NOT NULL, " +
+                        "`toUtcMillis` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`travelId`) REFERENCES `travels`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_travel_session_blocks_travelId` " +
+                        "ON `travel_session_blocks` (`travelId`)"
+                )
+            }
+        }
+
         /**
          * v10 -> v11: per-user travel isolation.
          *

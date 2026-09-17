@@ -59,20 +59,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -85,12 +78,10 @@ import androidx.core.graphics.drawable.DrawableCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.progmob_progetto_melluso.R
 import kotlinx.coroutines.delay
 import com.google.gson.JsonObject
-import com.example.progmob_progetto_melluso.core.AppContainer
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
@@ -239,35 +230,27 @@ internal fun PoiDetailSheet(
 /**
  * Full-screen overlay of the map section with the LIVE trip info.
  *
- * How it works: while the active travel is ongoing a [LaunchedEffect] ticks
- * every second, so the timer updates in real time; the steps and the distance
- * come from the shared pedometer tables (live flows from [MapViewModel]). With
- * no active travel the timer is paused at 00:00 and a hint is shown.
+ * How it works: the timer shows the TRAVELED duration (see the traveled-
+ * duration requirement): the value grows in real time because it comes from
+ * the ViewModel state; the steps and the distance come from the
+ * shared pedometer tables (live flows from [MapViewModel]). With no active
+ * travel the timer is paused at 00:00 and a hint is shown.
  */
 @Composable
 internal fun TripInfoOverlay(
     activeTravel: TravelEntity?,
     steps: Long,
     distanceMeters: Double,
+    traveledMillis: Long,
     onDismiss: () -> Unit
 ) {
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    val ongoing = activeTravel != null
-    LaunchedEffect(ongoing) {
-        if (ongoing) {
-            while (true) {
-                delay(1_000L)
-                now = System.currentTimeMillis()
-            }
-        }
-    }
+    // The timer shows the TRAVELED duration (the traveled-duration
+    // requirement): the time this trip was tracked, stored as session blocks
+    // plus the segment running right now. The value comes from the ViewModel
+    // state (MVVM separation) and is re-emitted every second, so the timer
+    // advances on its own while the trip runs.
+    val durationMillis = traveledMillis
 
-    val start = activeTravel?.startUtcMillis
-    val durationMillis = when {
-        start == null -> 0L
-        activeTravel?.endUtcMillis != null -> activeTravel.endUtcMillis - start
-        else -> now - start
-    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),

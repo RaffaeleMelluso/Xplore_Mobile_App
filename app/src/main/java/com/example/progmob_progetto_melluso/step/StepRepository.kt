@@ -26,7 +26,7 @@ interface StepRepository {
      * travel and stored in `step_daily_summaries`, while `step_checkpoints`
      * keeps the last value so a process restart can resume without double
      * counting. Readings without an active travel are ignored (no trip, no
-     * steps).
+     * steps): the pedometer never creates a travel by itself.
      *
      * @param cumulativeSteps the latest cumulative count from the sensor.
      */

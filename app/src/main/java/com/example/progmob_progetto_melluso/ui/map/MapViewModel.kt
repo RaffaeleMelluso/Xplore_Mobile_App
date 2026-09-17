@@ -11,13 +11,17 @@ import com.example.progmob_progetto_melluso.step.StepRepository
 import com.example.progmob_progetto_melluso.travel.TravelDistanceCalculator
 import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelConfig
+import com.example.progmob_progetto_melluso.travel.TravelRepository
 import com.example.progmob_progetto_melluso.travel.TravelStaleness
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -38,6 +42,10 @@ import kotlinx.coroutines.launch
  *   votes with the SAME rules as the journal and the trends page.
  * @param stepRepository the pedometer totals of the active travel, shown live
  *   by the map trip-info screen (timer, steps, distance).
+ * @param travelRepository the travel lifecycle source (the same one the
+ *   journal and the tracking service use): it provides the TRAVELED duration
+ *   of the active travel for the trip-info timer. The screen never receives
+ *   it directly — everything flows through the ViewModel state.
  * @param config travel thresholds, including the staleness ones (how far / how
  *   old a trip can be before the user is asked whether it is still ongoing).
  * @param clock provides "now" in UTC millis; injectable for deterministic tests.
@@ -48,6 +56,7 @@ class MapViewModel(
     private val poiRepository: PoiRepository,
     private val poiVoteRepository: PoiVoteRepository,
     private val stepRepository: StepRepository,
+    private val travelRepository: TravelRepository,
     private val config: TravelConfig = TravelConfig(),
     private val clock: () -> Long = System::currentTimeMillis
 ) : ViewModel() {
@@ -78,6 +87,18 @@ class MapViewModel(
     // back (the ViewModel survives the MapScreen leaving the composition).
     // Reset when a new active travel begins.
     private val shownGeofencePoiIds = MutableStateFlow<Set<Long>>(emptySet())
+
+    // TRAVELED duration of the ACTIVE travel (tracked time, the traveled-
+    // duration requirement): follows the active travel id, so the trip-info
+    // timer shows the right trip without any repository access in the screen.
+    // The repository re-emits it every second while the trip is ongoing, which
+    // is what makes the timer move; for a closed trip it emits a single value.
+    private val activeTraveledFlow = mapRepository.observeTravels()
+        .map { travels -> travels.firstOrNull { it.endUtcMillis == null }?.id }
+        .distinctUntilChanged()
+        .flatMapLatest { id ->
+            if (id == null) flowOf(0L) else travelRepository.observeTraveledDuration(id)
+        }
 
     // Journal travels + their detected cities, combined so the filter can
     // label each trip with the places it visited (its category).
@@ -204,6 +225,9 @@ class MapViewModel(
                 )
             )
         }
+        .combine(activeTraveledFlow) { state, traveledMillis ->
+            state.copy(activeTraveledMillis = traveledMillis)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
@@ -293,8 +317,11 @@ class MapViewModel(
     }
 
     /**
-     * The user says the stale trip is still ongoing: stop asking about it
-     * while this travel stays active.
+     * The user says the stale trip is still ongoing: stop asking about it for
+     * THIS app session. The dismissal is intentionally NOT persisted: at the
+     * next open, if the trip is still active, the question comes back — so a
+     * genuinely ongoing vacation is never nagged within one session, while an
+     * abandoned one is offered the close again on every new app open.
      */
     fun keepStaleTravel() {
         val id = uiState.value.staleTravel?.travelId ?: return
@@ -308,6 +335,27 @@ class MapViewModel(
     fun endStaleTravel() {
         dismissedStaleTravelId.value = null
         viewModelScope.launch { mapRepository.stopTravel() }
+    }
+
+    /**
+     * Manual trip start from the map FAB (the manual trip-start requirement):
+     * opens a new travel, or reuses the active one. The repository opens the
+     * trip's traveled-duration clock together with the trip, so the timer
+     * starts from zero, now, without the screen chaining two calls. The clock
+     * is per-process state inside the repository: journal, map and tracking
+     * service all read the same one.
+     */
+    fun startTravelFromMap() {
+        viewModelScope.launch { travelRepository.startTravel() }
+    }
+
+    /**
+     * Manual trip stop from the map FAB: the repository stores the tail of the
+     * tracked clock together with the end stamp of the trip, so no tracked
+     * time is lost.
+     */
+    fun stopTravelFromMap() {
+        viewModelScope.launch { travelRepository.stopTravel() }
     }
 
     companion object {

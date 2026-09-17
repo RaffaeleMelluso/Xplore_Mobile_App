@@ -103,6 +103,15 @@ interface TravelJournalRepository {
      */
     fun observeTravelDistance(travelId: Long): Flow<Double>
 
+    /**
+     * Emits the TRAVELED duration (open-app time) of one travel in millis.
+     * Delegated to [com.example.progmob_progetto_melluso.travel.TravelRepository]:
+     * the journal shows the same traveled time the map computes, and the
+     * screens must read it through this repository (MVVM separation), never
+     * from the travel repository directly.
+     */
+    fun observeTraveledDuration(travelId: Long): Flow<Long>
+
     /** Starts a new travel (single active travel). @return the active travel id. */
     suspend fun startTravel(): Long
 
