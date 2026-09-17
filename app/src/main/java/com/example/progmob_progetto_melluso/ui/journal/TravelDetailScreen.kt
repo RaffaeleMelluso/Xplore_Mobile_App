@@ -59,7 +59,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -184,13 +183,15 @@ fun TravelDetailScreen(
                 Spacer(Modifier.height(24.dp))
             }
 
-            // Trip stats: pedometer steps, walked distance and duration (live
-            // while the trip is still ongoing).
+            // Trip stats: pedometer steps, walked distance and TRAVELED
+            // duration (live while the trip is still ongoing): the time this
+            // trip was tracked, not the raw wall clock from the start.
             TripStatsSection(
                 startUtcMillis = journal.travel.startUtcMillis,
                 endUtcMillis = journal.travel.endUtcMillis,
                 steps = journal.steps,
-                distanceMeters = journal.distanceMeters
+                distanceMeters = journal.distanceMeters,
+                traveledMillis = uiState.detailTraveledMillis
             )
 
             Spacer(Modifier.height(24.dp))
@@ -251,10 +252,10 @@ fun TravelDetailScreen(
  * Pedometer + duration card of a trip (the transport-reporting requirement: "registrare il numero di
  * passi e le distanze percorse durante il viaggio" + the trip length).
  *
- * How it works: the duration is end-start for a closed trip; while the trip is
- * still ongoing a [LaunchedEffect] ticks every second so the timer updates
- * live. Steps and distance come from the shared pedometer tables (0 when the
- * device has no step sensor or the trip predates the feature).
+ * How it works: the traveled duration arrives from the ViewModel state (live
+ * for an ongoing trip, stored blocks for a closed one). Steps and distance come
+ * from the shared pedometer tables (0 when the device has no step sensor or
+ * the trip predates the feature).
  */
 @Composable
 private fun TripStatsSection(
@@ -262,19 +263,14 @@ private fun TripStatsSection(
     endUtcMillis: Long?,
     steps: Long,
     distanceMeters: Double,
+    traveledMillis: Long,
     modifier: Modifier = Modifier
 ) {
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    val ongoing = endUtcMillis == null
-    LaunchedEffect(ongoing) {
-        if (ongoing) {
-            while (true) {
-                delay(1_000L)
-                now = System.currentTimeMillis()
-            }
-        }
-    }
-    val durationMillis = (endUtcMillis ?: now) - startUtcMillis
+    // The traveled duration (the traveled-duration requirement) comes from
+    // the ViewModel state (the session-block flow upstream), so it covers
+    // both open and closed trips and grows live while the trip is ongoing.
+    // The screen holds no repository (MVVM separation).
+    val durationMillis = traveledMillis
 
     Column(modifier = modifier.fillMaxWidth()) {
         Text(

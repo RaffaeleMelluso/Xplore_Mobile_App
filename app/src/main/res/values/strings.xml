@@ -115,7 +115,10 @@
     <string name="journal_empty_title">No trips yet</string>
     <string name="journal_empty_body">Start a trip to begin your travel journal.</string>
     <string name="journal_no_completed_trips">No completed trips yet. The ongoing trip is the card above.</string>
+    <string name="map_start_trip">Start trip</string>
+    <string name="map_stop_trip">Stop trip</string>
     <string name="journal_untitled">Untitled trip</string>
+    <string name="journal_traveled_duration">Traveled for %1$s (tracked time)</string>
     <string name="journal_view_details">View journal</string>
     <string name="journal_back">Back</string>
     <string name="journal_title_label">Title</string>

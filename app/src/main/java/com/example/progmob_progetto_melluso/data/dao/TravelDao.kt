@@ -82,4 +82,13 @@ interface TravelDao {
      */
     @Query("UPDATE travels SET userId = :userId WHERE userId IS NULL")
     suspend fun claimLegacyTravels(userId: String)
+
+    /**
+     * Every stored title (null rows included as placeholders), used by the
+     * auto-title generator to pick a unique "Trip N". Deliberately NOT
+     * user-scoped: auto-numbers must be unique on the device, not per
+     * account, so switching account can never resurrect a duplicate title.
+     */
+    @Query("SELECT title FROM travels")
+    suspend fun allTitlesOnce(): List<String?>
 }

@@ -4,8 +4,8 @@ import com.example.progmob_progetto_melluso.data.dao.StepCheckpointDao
 import com.example.progmob_progetto_melluso.data.dao.StepDailySummaryDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.entities.StepCheckpointEntity
-import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.StepDailySummaryEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -77,8 +77,9 @@ class StepRepositoryImpl(
             lastSensorValue = null
             null
         } else if (activeBeforeReading == null) {
-            // No trip is active yet. Keep the first sensor reading as a
-            // baseline so a later positive delta can create a new trip.
+            // No trip is active: the pedometer never opens one by itself, so
+            // the reading is remembered only as a baseline (a trip started
+            // later must not import steps walked before it began).
             lastSensorValue
         } else if (lastSensorTravelId == null) {
             // After a process restart, resume only from THIS travel's
@@ -107,11 +108,11 @@ class StepRepositoryImpl(
         lastSensorValue = cumulativeSteps
         if (delta <= 0) return@withLock
 
-        // Steps ALONE can open a trip: when no active travel exists (e.g. no
-        // GPS fix yet or location services off, online or offline), walking
-        // creates one — so the pedometer always counts whenever the app is
-        // running, foreground or background, instead of discarding steps.
-        val active = activeBeforeReading ?: activeTravelOrCreate(clock())
+        // Steps are recorded only into an ALREADY active travel: the trip
+        // lifecycle is manual (journal button) or auto-started by the map
+        // while the app is open — the pedometer never opens one by itself,
+        // otherwise walking at home would silently start a vacation.
+        val active = activeBeforeReading ?: return@withLock
         lastSensorTravelId = active.id
         saveCheckpoint(active.id, cumulativeSteps)
 
@@ -166,25 +167,6 @@ class StepRepositoryImpl(
         val userId = userIdProvider()
         travelDao.claimLegacyTravels(userId)
         emitAll(travelDao.activeTravelForUser(userId).map { it?.id })
-    }
-
-    /**
-     * Returns the active travel of the current user, CREATING one when none
-     * exists (single-active invariant, the same policy the location tracking
-     * uses). Without this, steps would be discarded before the first GPS fix.
-     */
-    private suspend fun activeTravelOrCreate(nowUtcMillis: Long): TravelEntity {
-        val userId = userIdProvider()
-        travelDao.claimLegacyTravels(userId)
-        travelDao.activeTravelForUserOnce(userId)?.let { return it }
-        val travel = TravelEntity(
-            startUtcMillis = nowUtcMillis,
-            endUtcMillis = null,
-            travelTimeZoneId = timeZoneIdProvider(),
-            title = null,
-            userId = userId
-        )
-        return travel.copy(id = travelDao.insert(travel))
     }
 
     /** Persists the resume point of the active travel (last raw sensor value). */

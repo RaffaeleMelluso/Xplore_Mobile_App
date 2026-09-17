@@ -56,6 +56,50 @@ class TravelJournalViewModel(
         if (id == null) flowOf(0.0) else journalRepository.observeTravelDistance(id)
     }
 
+    /** Live traveled duration of the ONGOING trip (journal card, timer). */
+    private val activeTraveledFlow = activeIdFlow.flatMapLatest { id ->
+        if (id == null) flowOf(0L) else journalRepository.observeTraveledDuration(id)
+    }
+
+    /** Traveled duration of EVERY travel by id (the list rows show it). */
+    private val traveledByIdFlow = journalRepository.observeJournal().flatMapLatest { travels ->
+        if (travels.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(
+                travels.map { travel ->
+                    journalRepository.observeTraveledDuration(travel.travelId)
+                        .map { millis -> travel.travelId to millis }
+                }
+            ) { pairs -> pairs.toMap() }
+        }
+    }
+
+    /** Traveled duration of the OPENED travel (detail screen, active or closed). */
+    private val detailTraveledFlow = selectedTravelId.flatMapLatest { id ->
+        if (id == null) flowOf(0L) else journalRepository.observeTraveledDuration(id)
+    }
+
+    /**
+     * The four live figures of a trip, grouped so the top-level state combine
+     * stays within the typed 5-flow overload of [combine].
+     */
+    private class TripFigures(
+        val steps: Long,
+        val distanceMeters: Double,
+        val activeTraveledMillis: Long,
+        val detailTraveledMillis: Long
+    )
+
+    private val tripFiguresFlow = combine(
+        activeStepsFlow,
+        activeDistanceFlow,
+        activeTraveledFlow,
+        detailTraveledFlow
+    ) { steps, distance, activeTraveled, detailTraveled ->
+        TripFigures(steps, distance, activeTraveled, detailTraveled)
+    }
+
     /**
      * Combined journal state: everything the tab needs.
      *
@@ -66,14 +110,17 @@ class TravelJournalViewModel(
         travelsFlow,
         detailFlow,
         travelActionPending,
-        activeStepsFlow,
-        activeDistanceFlow
-    ) { travels, detail, pending, steps, distance ->
+        tripFiguresFlow,
+        traveledByIdFlow
+    ) { travels, detail, pending, figures, traveledById ->
         TravelJournalUiState(
             travels = travels,
             activeTravel = travels.firstOrNull { it.endUtcMillis == null },
-            activeSteps = steps,
-            activeDistanceMeters = distance,
+            activeSteps = figures.steps,
+            activeDistanceMeters = figures.distanceMeters,
+            activeTraveledMillis = figures.activeTraveledMillis,
+            detailTraveledMillis = figures.detailTraveledMillis,
+            traveledMillisById = traveledById,
             selectedTravelId = selectedTravelId.value,
             detail = detail,
             isTravelActionPending = pending,

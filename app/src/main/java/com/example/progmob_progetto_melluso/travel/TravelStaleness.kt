@@ -10,7 +10,8 @@ import com.example.progmob_progetto_melluso.core.GeoUtils
  * another city while the app was closed and the trip was never closed).
  */
 enum class StaleReason {
-    /** The trip started longer ago than [TravelConfig.tripEndDurationMillis]. */
+    /** The trip has been open (even only across app sessions) for longer
+     *  than [TravelConfig.tripEndDurationMillis]. */
     TOO_OLD,
 
     /** The current position is further than [TravelConfig.tripEndDistanceMeters]
@@ -38,7 +39,8 @@ object TravelStaleness {
      *   null when the trip has no points yet.
      * @param currentLat/currentLon the user's current position; null before
      *   the first fix (the distance trigger cannot fire without it).
-     * @param maxDurationMillis the age threshold (OR trigger #1).
+     * @param maxDurationMillis the open-duration threshold (OR trigger #1),
+     *   measured from the trip start (its oldest possible session origin).
      * @param maxDistanceMeters the distance threshold from the anchor
      *   (OR trigger #2).
      * @param nowMillis \"now\" in UTC millis.

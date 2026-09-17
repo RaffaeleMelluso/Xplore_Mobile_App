@@ -99,27 +99,24 @@ class StepRepositoryImplTest {
     }
 
     /**
-     * Verifica che un delta positivo possa CREARE da solo il viaggio attivo
-     * (niente GPS ancora): i passi non vanno mai persi, contano app open o in
-     * background, offline o online.
+     * Verifica che i passi NON creino più un viaggio da soli: senza viaggio
+     * attivo la lettura fissa solo il baseline e nessun passo viene scritto
+     * (la creazione del viaggio è manuale o dell'auto-start della mappa).
      */
     @Test
-    fun onStepCount_createsTravelWhenNoneActive() = runTest {
+    fun onStepCount_doesNotCreateTravelWhenNoneActive() = runTest {
         val travelDao = mock<TravelDao>()
         whenever(travelDao.activeTravelForUserOnce("u1")).thenReturn(null)
         val summaryDao = mock<StepDailySummaryDao>()
-        // The created travel gets id 0 from the mocked insert (a Long, not null).
-        whenever(travelDao.insert(any())).thenReturn(0L)
-        whenever(summaryDao.summaryForTravelAndDateOnce(0L, "1970-01-01", "UTC")).thenReturn(null)
         val checkpointDao = mock<StepCheckpointDao>()
 
         val repo = repository(travelDao, checkpointDao, summaryDao)
-        repo.onStepCount(1_000L) // baseline
-        repo.onStepCount(1_030L) // delta 30 -> creates the trip and records
+        repo.onStepCount(1_000L) // baseline, no trip
+        repo.onStepCount(1_030L) // positive delta but STILL no trip
 
-        verify(travelDao).insert(any())
-        verify(checkpointDao, times(1)).upsert(any())
-        verify(summaryDao).upsert(argThat { travelId == 0L && steps == 30L })
+        verify(travelDao, never()).insert(any())
+        verify(checkpointDao, never()).upsert(any())
+        verify(summaryDao, never()).upsert(any())
     }
 
     /**

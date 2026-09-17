@@ -4,10 +4,19 @@ import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
+import com.example.progmob_progetto_melluso.data.dao.TravelSessionBlockDao
 import com.example.progmob_progetto_melluso.data.entities.PoiEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelSessionBlockEntity
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +30,7 @@ import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TravelRepositoryImplTest {
 
     /** Small deterministic thresholds so tests don't need real distances. */
@@ -41,6 +51,11 @@ class TravelRepositoryImplTest {
     }
 
     private fun visitDao(): TravelPoiVisitDao = mock()
+
+    /** Mocked session-block DAO (no stored blocks). */
+    private suspend fun sessionBlockDao(): TravelSessionBlockDao = mock<TravelSessionBlockDao>().apply {
+        whenever(blocksForTravel(any())).thenReturn(kotlinx.coroutines.flow.flowOf(emptyList()))
+    }
 
     private fun activeTravel(id: Long = 1L) = TravelEntity(
         id = id,
@@ -64,7 +79,7 @@ class TravelRepositoryImplTest {
         val repository = TravelRepositoryImpl(
             travelDao = travelDao,
             pathPointDao = pathPointDao,
-            poiDao = poiDao(), travelPoiVisitDao = visitDao(), config = config,
+            poiDao = poiDao(), travelPoiVisitDao = visitDao(), sessionBlockDao = sessionBlockDao(), config = config,
             timeZoneIdProvider = { "Europe/Rome" },
             clock = { 1_000L }
         )
@@ -91,7 +106,7 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(3L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
         assertEquals(3L, repository.startTravel())
         verify(travelDao, never()).insert(any())
@@ -110,7 +125,7 @@ class TravelRepositoryImplTest {
         val repository = TravelRepositoryImpl(
             travelDao = travelDao,
             pathPointDao = pathPointDao,
-            poiDao = poiDao(), travelPoiVisitDao = visitDao(), config = config,
+            poiDao = poiDao(), travelPoiVisitDao = visitDao(), sessionBlockDao = sessionBlockDao(), config = config,
             clock = { 42L }
         )
 
@@ -127,7 +142,7 @@ class TravelRepositoryImplTest {
         val pathPointDao = mock<TravelPathPointDao>()
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(null)
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
         assertFalse(repository.stopTravel())
         verify(travelDao, never()).update(any())
@@ -145,9 +160,9 @@ class TravelRepositoryImplTest {
         whenever(travelDao.insert(any())).thenReturn(1L)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        val result = repository.recordLocation(LocationSample(45.0, 7.0, 100L, 5f))
+        val result = repository.recordLocation(LocationSample(45.0, 7.0, 100L, 5f), autoStart = true)
 
         assertEquals(LocationRecordResult.Recorded(1L, false), result)
         verify(pathPointDao).insert(
@@ -166,11 +181,11 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // ~5m away and 5s later: below both thresholds, must be skipped.
-        val result = repository.recordLocation(LocationSample(0.000045, 0.0, 5_000L))
+        val result = repository.recordLocation(LocationSample(0.000045, 0.0, 5_000L), autoStart = true)
 
         assertEquals(LocationRecordResult.Skipped, result)
         verify(pathPointDao, times(1)).insert(any())
@@ -188,12 +203,12 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // ~55 m away (beyond the spatial threshold) but only 500 ms later:
         // the temporal threshold is not met, must be skipped.
-        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 500L))
+        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 500L), autoStart = true)
 
         assertEquals(LocationRecordResult.Skipped, result)
         verify(pathPointDao, times(1)).insert(any())
@@ -210,11 +225,11 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // ~55 m away and 2 s later: both thresholds met, must be recorded.
-        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 2_000L))
+        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 2_000L), autoStart = true)
 
         assertTrue(result is LocationRecordResult.Recorded)
         verify(pathPointDao, times(2)).insert(any())
@@ -231,13 +246,13 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // ~55 m away (inside the vacation radius, beyond the spatial
         // threshold) but with a reported error above the maximum accepted
         // accuracy: must be skipped.
-        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 5_000L, accuracyMeters = 60f))
+        val result = repository.recordLocation(LocationSample(0.0005, 0.0, 5_000L, accuracyMeters = 60f), autoStart = true)
 
         assertEquals(LocationRecordResult.Skipped, result)
         verify(pathPointDao, times(1)).insert(any())
@@ -254,9 +269,9 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        val result = repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 90f))
+        val result = repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 90f), autoStart = true)
 
         assertTrue(result is LocationRecordResult.Recorded)
     }
@@ -273,13 +288,13 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
         // Both fixes report ±20 m of error: the effective threshold is the
         // average buffer (20 m), above the 15 m apparent displacement.
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 20f))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 20f), autoStart = true)
         val result = repository.recordLocation(
-            LocationSample(0.000135, 0.0, 30_000L, accuracyMeters = 20f)
+            LocationSample(0.000135, 0.0, 30_000L, accuracyMeters = 20f), autoStart = true
         )
 
         assertEquals(LocationRecordResult.Skipped, result)
@@ -297,11 +312,11 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // No movement even after the time threshold: must be skipped.
-        val result = repository.recordLocation(LocationSample(0.0, 0.0, 15_000L))
+        val result = repository.recordLocation(LocationSample(0.0, 0.0, 15_000L), autoStart = true)
 
         assertEquals(LocationRecordResult.Skipped, result)
         verify(pathPointDao, times(1)).insert(any())
@@ -318,16 +333,16 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // 44m east, still within the 100m radius.
-        repository.recordLocation(LocationSample(0.0004, 0.0, 1_000L))
+        repository.recordLocation(LocationSample(0.0004, 0.0, 1_000L), autoStart = true)
         // Back to the start.
-        repository.recordLocation(LocationSample(0.0, 0.0, 2_000L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 2_000L), autoStart = true)
         // East again: the travelled path exceeds 100m in total, but the user
         // never leaves the radius, so the trip must NOT be segmented.
-        val result = repository.recordLocation(LocationSample(0.0004, 0.0, 3_000L))
+        val result = repository.recordLocation(LocationSample(0.0004, 0.0, 3_000L), autoStart = true)
 
         assertEquals(LocationRecordResult.Recorded(1L, false), result)
         verify(travelDao, never()).update(any())
@@ -348,12 +363,12 @@ class TravelRepositoryImplTest {
         whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(existing)
         whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
-        repository.recordLocation(LocationSample(0.0, 0.0, 0L))
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
         // around 150m from the anchor: beyond the radius, but the trip is NOT
         // closed behind the user's back — the point is recorded normally.
-        val result = repository.recordLocation(LocationSample(0.0, 0.00135, 1_000L))
+        val result = repository.recordLocation(LocationSample(0.0, 0.00135, 1_000L), autoStart = true)
 
         assertEquals(LocationRecordResult.Recorded(1L, false), result)
         verify(travelDao, never()).update(any())
@@ -390,11 +405,11 @@ class TravelRepositoryImplTest {
         // recorded -> no insert.
         whenever(visitDao.visitForTravelAndPoi(any(), any())).thenReturn(null, existingVisit)
 
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao, visitDao, config)
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao, visitDao, sessionBlockDao(), config)
 
         // Pass near the POI twice in the same trip (both points are recorded).
-        repository.recordLocation(LocationSample(45.0, 7.0, 0L, 5f))
-        repository.recordLocation(LocationSample(45.0002, 7.0, 2_000L, 5f))
+        repository.recordLocation(LocationSample(45.0, 7.0, 0L, 5f), autoStart = true)
+        repository.recordLocation(LocationSample(45.0002, 7.0, 2_000L, 5f), autoStart = true)
 
         // The visit is inserted exactly once, not once per pass.
         verify(visitDao, times(1)).insert(any())
@@ -421,11 +436,136 @@ class TravelRepositoryImplTest {
 
         // A fresh repository rebuilds the anchor from storage; a sample is 111m
         // from the anchor: beyond the radius, but the trip stays open.
-        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), config)
-        val result = repository.recordLocation(LocationSample(0.0, 0.0010, 2_000L))
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
+        val result = repository.recordLocation(LocationSample(0.0, 0.0010, 2_000L), autoStart = true)
 
         assertEquals(LocationRecordResult.Recorded(1L, false), result)
         verify(travelDao, never()).update(any())
         verify(pathPointDao).insert(argThat { travelId == 1L })
+    }
+
+    /**
+     * Verifica che in background (autoStart = false) un fix senza viaggio
+     * attivo NON apra un viaggio: il campione viene scartato (viaggio solo
+     * manuale o auto-start in foreground).
+     */
+    @Test
+    fun recordLocation_withoutAutoStart_dropsSampleWhenNoActiveTravel() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(null)
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
+
+        val result = repository.recordLocation(LocationSample(45.0, 7.0, 100L, 5f), autoStart = false)
+
+        assertEquals(LocationRecordResult.Skipped, result)
+        verify(travelDao, never()).insert(any())
+        verify(pathPointDao, never()).insert(any())
+    }
+
+    /**
+     * Verifica che in background (autoStart = false) un fix CON viaggio
+     * attivo venga comunque registrato: il tracciamento in background
+     * continua a funzionare per il viaggio già avviato.
+     */
+    @Test
+    fun recordLocation_withoutAutoStart_recordsIntoActiveTravel() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
+
+        val result = repository.recordLocation(LocationSample(45.0, 7.0, 100L, 5f), autoStart = false)
+
+        assertEquals(LocationRecordResult.Recorded(1L, false), result)
+        verify(pathPointDao).insert(argThat { travelId == 1L })
+    }
+
+    /**
+     * Verifica che avviare un viaggio apra il cronometro della durata: il
+     * timer parte dal via senza che nessun chiamante debba aprire la sessione
+     * a parte (mappa, diario e servizio passano tutti da startTravel).
+     */
+    @Test
+    fun startTravel_opensTheTraveledClock() = runTest {
+        var now = 1_000L
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(null)
+        whenever(travelDao.insert(any())).thenReturn(9L)
+        whenever(travelDao.travelById(9L)).thenReturn(flowOf(activeTravel(9L)))
+        whenever(pathPointDao.pointsForTravelOnce(9L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(
+            travelDao = travelDao,
+            pathPointDao = pathPointDao,
+            poiDao = poiDao(), travelPoiVisitDao = visitDao(), sessionBlockDao = sessionBlockDao(), config = config,
+            clock = { now }
+        )
+        // Closes any session another test left open, then starts fresh.
+        repository.endSession()
+        repository.startTravel()
+        now += 45_000L
+
+        assertEquals(45_000L, repository.observeTraveledDuration(9L).first())
+        repository.endSession()
+    }
+
+    /**
+     * Verifica che la durata di un viaggio IN CORSO venga riemessa mentre il
+     * tempo passa, sommando i blocchi gia' registrati al segmento in corso:
+     * senza il tick il timer restava congelato, perche' nessuno scrive sulle
+     * tabelle travels/session_blocks mentre il viaggio prosegue.
+     */
+    @Test
+    fun observeTraveledDuration_ticksWhileTheTripIsOngoing() = runTest {
+        var now = 10_000L
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        val running = activeTravel(42L)
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(running)
+        whenever(travelDao.travelById(42L)).thenReturn(flowOf(running))
+        whenever(pathPointDao.pointsForTravelOnce(42L)).thenReturn(emptyList())
+        // 3 s of this trip were already tracked (a previously closed segment).
+        val sessionBlockDao = mock<TravelSessionBlockDao>().apply {
+            whenever(blocksForTravel(42L)).thenReturn(
+                flowOf(
+                    listOf(
+                        TravelSessionBlockEntity(
+                            id = 1L,
+                            travelId = 42L,
+                            fromUtcMillis = 0L,
+                            toUtcMillis = 3_000L
+                        )
+                    )
+                )
+            )
+        }
+        val repository = TravelRepositoryImpl(
+            travelDao = travelDao,
+            pathPointDao = pathPointDao,
+            poiDao = poiDao(), travelPoiVisitDao = visitDao(), sessionBlockDao = sessionBlockDao, config = config,
+            clock = { now }
+        )
+        repository.endSession()
+        repository.startTravel()
+
+        val values = mutableListOf<Long>()
+        val collector = launch { repository.observeTraveledDuration(42L).take(3).collect { values += it } }
+        runCurrent()
+        now += 1_000L
+        advanceTimeBy(1_000L)
+        runCurrent()
+        now += 1_000L
+        advanceTimeBy(1_000L)
+        runCurrent()
+        collector.join()
+        repository.endSession()
+
+        // The stored block (3 s) plus the open segment: right away, +1 s, +2 s.
+        assertEquals(listOf(3_000L, 4_000L, 5_000L), values)
     }
 }

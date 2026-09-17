@@ -5,12 +5,19 @@ import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPoiVisitDao
+import com.example.progmob_progetto_melluso.data.dao.TravelSessionBlockDao
 import com.example.progmob_progetto_melluso.data.entities.TravelEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPathPointEntity
 import com.example.progmob_progetto_melluso.data.entities.TravelPoiVisitEntity
+import com.example.progmob_progetto_melluso.data.entities.TravelSessionBlockEntity
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -28,6 +35,22 @@ import kotlinx.coroutines.sync.withLock
  * the UI layer and the user is ASKED whether the vacation is still ongoing
  * before the trip is closed (the travel lifecycle requirement, confirmed close instead of silent).
  *
+ * Trip start: manual by default (the map / journal buttons), or automatic
+ * while the app is open AND the user actually moves — [recordLocation] with
+ * [autoStart]=true opens a trip, but the tracking service sets that flag only
+ * after [AutoStartGate] saw a real displacement between two fixes (a noise
+ * buffer of a few tens of meters keeps sensor jitter from opening trips while
+ * sitting still). Background samples are dropped when no trip is active, so a
+ * trip is never opened from the background without the user asking for it.
+ *
+ * Traveled duration: the clock of a trip follows the TRACKING, not the app
+ * visibility. It opens when the trip starts ([startTravel] and the auto-start
+ * path) and when the tracking service starts, and closes when the trip is
+ * stopped or tracking is torn down. The duration therefore grows while the
+ * phone keeps tracking the user with the app in the background (pocket mode)
+ * and stops when tracking stops: it is the time the trip was actually
+ * tracked, which is what the journal, the map and the trip timer show.
+ *
  * @param travelDao DAO for the travels table.
  * @param pathPointDao DAO for the recorded path points.
  * @param poiDao DAO for the POIs, used by the automatic visit detection.
@@ -41,11 +64,13 @@ import kotlinx.coroutines.sync.withLock
  *   so switching account shows an empty journal instead of the previous
  *   user's data.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class TravelRepositoryImpl(
     private val travelDao: TravelDao,
     private val pathPointDao: TravelPathPointDao,
     private val poiDao: PoiDao,
     private val travelPoiVisitDao: TravelPoiVisitDao,
+    private val sessionBlockDao: TravelSessionBlockDao,
     private val config: TravelConfig = TravelConfig(),
     private val timeZoneIdProvider: () -> String = { "UTC" },
     private val clock: () -> Long = { System.currentTimeMillis() },
@@ -61,6 +86,40 @@ class TravelRepositoryImpl(
     private var trackedTravelId: Long? = null
     private var anchorPoint: TravelPathPointEntity? = null
     private var lastPoint: TravelPathPointEntity? = null
+
+    /**
+     * Milliseconds the tracked clock has been running; 0 when it is closed.
+     *
+     * Backed by the companion [sessionStartUtcMillis] / [sessionTravelId]:
+     * AppContainer builds a NEW TravelRepositoryImpl per call (the sensor
+     * layer and the UI each get their own instance), so the clock must be
+     * per-PROCESS. Otherwise the service's [endSession] could never close the
+     * segment the map's [startSession] opened and the timer would freeze.
+     */
+    private fun openSessionMillis(): Long {
+        val startedAt = sessionStartUtcMillis ?: return 0L
+        return maxOf(0L, clock() - startedAt)
+    }
+
+    /**
+     * Opens the tracked clock on [travelId].
+     *
+     * Idempotent: when the clock is already running for THIS trip its start
+     * instant is kept, so a second call (the app reopening, the service
+     * restarting, a manual start on a trip that is already running) can never
+     * throw away the time already counted.
+     */
+    private fun openSession(travelId: Long) {
+        if (sessionTravelId == travelId && sessionStartUtcMillis != null) return
+        sessionTravelId = travelId
+        sessionStartUtcMillis = clock()
+    }
+
+    /** Closes the tracked clock; the open segment is stored by the caller. */
+    private fun closeSession() {
+        sessionTravelId = null
+        sessionStartUtcMillis = null
+    }
 
     override fun observeActiveTravel(): Flow<TravelEntity?> = flow {
         val userId = userIdProvider()
@@ -83,27 +142,134 @@ class TravelRepositoryImpl(
         travelDao.claimLegacyTravels(userId)
         travelDao.activeTravelForUserOnce(userId)?.let { active ->
             loadState(active.id)
+            // Already running: make sure the clock is open, but do NOT restart
+            // an existing segment (openSession is idempotent).
+            openSession(active.id)
             return@withLock active.id
         }
         val id = createActiveTravel(clock(), userId).id
         loadState(id)
+        // The tracked clock starts together with the trip, whichever caller
+        // started it (map button, journal button): the timer counts from here
+        // and no caller has to remember to open the session itself.
+        openSession(id)
         id
+    }
+
+    /**
+     * Stores one tracked window, but only while [travelId] is STILL the
+     * active travel: a block arriving after the stop (or belonging to an old
+     * trip) must never extend a closed trip.
+     */
+    private suspend fun recordSessionBlock(travelId: Long, fromUtcMillis: Long, toUtcMillis: Long) {
+        if (toUtcMillis <= fromUtcMillis) return
+        mutex.withLock {
+            // Only the travel that is currently running can accumulate open-
+            // app time: a block arriving after the stop is stale and must not
+            // extend a closed trip.
+            val active = travelDao.activeTravelForUserOnce(userIdProvider()) ?: return@withLock
+            if (active.id != travelId) return@withLock
+            sessionBlockDao.insert(
+                TravelSessionBlockEntity(
+                    travelId = travelId,
+                    fromUtcMillis = fromUtcMillis,
+                    toUtcMillis = toUtcMillis
+                )
+            )
+        }
+    }
+
+    /**
+     * Emits the traveled duration of [travelId]: the stored tracking blocks
+     * plus the clock segment that is open right now.
+     *
+     * Why the ticker: an ONGOING trip's duration grows with the clock, but
+     * nothing writes the travels or the session-block table while it runs, so
+     * a plain `combine` of the two Room flows emitted once and then stayed
+     * frozen (the "timer never moves" bug). The ongoing value is therefore
+     * recomputed every [DURATION_TICK_MILLIS] for as long as it is observed.
+     * A CLOSED trip emits a single value and completes, so a finished trip
+     * never keeps a timer alive.
+     */
+    override fun observeTraveledDuration(travelId: Long): Flow<Long> =
+        combine(
+            travelDao.travelById(travelId),
+            sessionBlockDao.blocksForTravel(travelId)
+        ) { travel, blocks -> travel to blocks }
+            .flatMapLatest { (travel, blocks) ->
+                val storedMillis = blocks.sumOf { it.toUtcMillis - it.fromUtcMillis }
+                when {
+                    // No travel (yet): nothing to time.
+                    travel == null -> flowOf(0L)
+                    // Closed trip: every segment is stored, so the sum IS the
+                    // time the trip was tracked.
+                    travel.endUtcMillis != null -> flowOf(storedMillis)
+                    else -> flow {
+                        while (true) {
+                            emit(storedMillis + openSessionMillis())
+                            delay(DURATION_TICK_MILLIS)
+                        }
+                    }
+                }
+            }
+
+    override suspend fun endSession() {
+        // The clock knows the trip it belongs to, so any instance can close a
+        // segment another instance opened (the service, the map and the
+        // journal each hold their own repository).
+        val startedAt = sessionStartUtcMillis ?: return
+        val travelId = sessionTravelId ?: return
+        recordSessionBlock(travelId, startedAt, clock())
+        // Closing STORES the segment: the duration stops growing while nothing
+        // tracks the user. [startSession] opens a new one when tracking resumes.
+        closeSession()
     }
 
     override suspend fun stopTravel(): Boolean = mutex.withLock {
         val userId = userIdProvider()
         travelDao.claimLegacyTravels(userId)
         val active = travelDao.activeTravelForUserOnce(userId) ?: return@withLock false
-        travelDao.update(active.copy(endUtcMillis = clock()))
+        // The tracked clock ends together with the trip: its tail is stored
+        // BEFORE the end stamp, so the closed trip keeps every second it was
+        // actually tracked.
+        val startedAt = sessionStartUtcMillis
+        val endedAt = clock()
+        val clockBelongsToThisTrip = sessionTravelId == null || sessionTravelId == active.id
+        if (startedAt != null && endedAt > startedAt && clockBelongsToThisTrip) {
+            sessionBlockDao.insert(
+                TravelSessionBlockEntity(
+                    travelId = active.id,
+                    fromUtcMillis = startedAt,
+                    toUtcMillis = endedAt
+                )
+            )
+        }
+        closeSession()
+        travelDao.update(active.copy(endUtcMillis = endedAt))
         resetState()
         true
     }
 
-    override suspend fun recordLocation(sample: LocationSample): LocationRecordResult =
+    override suspend fun recordLocation(
+        sample: LocationSample,
+        autoStart: Boolean
+    ): LocationRecordResult =
         mutex.withLock {
-            // 1. Ensure an active travel exists (auto-start, timeline-style).
-            val activeTravel = activeTravelOrCreate(sample.recordedAtUtcMillis)
+            // 1. Find the active travel. Without an explicit request the trip
+            //    only exists when the user (or a previous auto-start while the
+            //    app was open) started it: a GPS fix arriving with no active
+            //    travel is dropped instead of silently opening a trip.
+            val activeTravel = if (autoStart) {
+                activeTravelOrCreate(sample.recordedAtUtcMillis)
+            } else {
+                travelDao.activeTravelForUserOnce(userIdProvider())
+                    ?: return@withLock LocationRecordResult.Skipped
+            }
             if (trackedTravelId != activeTravel.id) loadState(activeTravel.id)
+            // A trip that opens here (auto-start) begins its tracked clock
+            // right away: autoStart is true only while the app is open AND the
+            // user really moved, so this is exactly the start of a fresh trip.
+            if (autoStart) openSession(activeTravel.id)
 
             // NOTE: no silent vacation-end close here anymore. The staleness
             // signal (distance from the anchor OR trip age) is evaluated in the
@@ -189,6 +355,17 @@ class TravelRepositoryImpl(
         accuracyMeters = sample.accuracyMeters
     )
 
+    override suspend fun startSession() {
+        val userId = userIdProvider()
+        travelDao.claimLegacyTravels(userId)
+        val active = travelDao.activeTravelForUserOnce(userId) ?: return
+        loadState(active.id)
+        // Idempotent: a trip that is already being tracked keeps its start, so
+        // re-opening the app (or restarting the service) never truncates the
+        // timer.
+        openSession(active.id)
+    }
+
     /** Returns the active travel of the current user, creating one when none exists. */
     private suspend fun activeTravelOrCreate(startUtcMillis: Long): TravelEntity {
         val userId = userIdProvider()
@@ -226,5 +403,27 @@ class TravelRepositoryImpl(
         trackedTravelId = null
         anchorPoint = null
         lastPoint = null
+        closeSession()
+    }
+
+    companion object {
+        /**
+         * Per-process tracked clock (see the class docs): the instant the open
+         * segment started and the trip it belongs to. Kept here because
+         * AppContainer hands out a new repository instance per caller, so an
+         * instance-level clock could never be closed from another instance.
+         */
+        @Volatile
+        private var sessionStartUtcMillis: Long? = null
+
+        @Volatile
+        private var sessionTravelId: Long? = null
+
+        /**
+         * How often an ongoing trip re-emits its duration: the resolution the
+         * timer displays. The tick runs only while an ongoing trip is being
+         * observed (see [observeTraveledDuration]).
+         */
+        private const val DURATION_TICK_MILLIS = 1_000L
     }
 }

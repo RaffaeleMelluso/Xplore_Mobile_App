@@ -120,6 +120,14 @@ class MapRepositoryImpl(
     companion object {
         /** Fallback anchor (Piazza Castello, Turin) used before the first fix. */
         private val DEFAULT_ANCHOR = LocationSample(45.0703, 7.6869, 0L)
-        private const val GHOST_TICK_MILLIS = 5_000L
+
+        /**
+         * How often the simulated travelers are re-anchored around the user.
+         * The ghosts are decoration around a position that the location fixes
+         * already refresh, so a slower tick costs nothing in realism while the
+         * map is open, and the tick does not run at all when the screen is not
+         * collecting the state (`WhileSubscribed`).
+         */
+        private const val GHOST_TICK_MILLIS = 10_000L
     }
 }

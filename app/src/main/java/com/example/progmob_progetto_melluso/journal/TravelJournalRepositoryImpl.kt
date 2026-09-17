@@ -111,6 +111,10 @@ class TravelJournalRepositoryImpl(
         TravelDistanceCalculator.calculate(pedometerDistance, pathPoints)
     }
 
+    override fun observeTraveledDuration(travelId: Long): Flow<Long> =
+        // Pure delegation: the session-block logic lives in TravelRepository.
+        travelRepository.observeTraveledDuration(travelId)
+
     override fun observeTravelDetails(travelId: Long): Flow<TravelJournal?> =
         travelDao.travelById(travelId).flatMapLatest { travel ->
             if (travel == null) {
@@ -312,12 +316,6 @@ class TravelJournalRepositoryImpl(
     override suspend fun renameCity(cityId: Long, name: String) {
         val city = travelCityDao.cityByIdOnce(cityId) ?: return
         travelCityDao.update(city.copy(name = name))
-        // If the trip was auto-named after this city ("Trip to <city>"),
-        // refresh the title so it follows the corrected city name.
-        val travel = travelDao.travelByIdOnce(city.travelId) ?: return
-        if (travel.title == AUTO_TITLE_PREFIX + city.name) {
-            travelDao.update(travel.copy(title = AUTO_TITLE_PREFIX + name))
-        }
     }
 
     /**
@@ -353,15 +351,16 @@ class TravelJournalRepositoryImpl(
             }
         }
 
-        // Auto-name the trip after its first visited city, unless the user
-        // already chose a title: the journal and the map filter then show a
-        // meaningful name instead of "Untitled trip".
+        // Auto-name the trip when it has no title yet (the user's chosen
+        // title is never overwritten): "Trip N" with the LOWEST number not
+        // already used by another trip of any user on this device. Scanning
+        // all titles (not just "max + 1") is what fixes the duplicate-name
+        // bug: titles are user-editable, so holes are common ("Trip 1",
+        // "Trip 3" after the user renamed/deleted "Trip 2") and a max+1
+        // scheme re-uses a number that a STILL-OPEN trip may already own.
         val travel = travelDao.travelByIdOnce(travelId) ?: return
         if (travel.title == null) {
-            val firstCity = travelCityDao.citiesForTravelOnce(travelId).firstOrNull()
-            if (firstCity != null) {
-                travelDao.update(travel.copy(title = AUTO_TITLE_PREFIX + firstCity.name))
-            }
+            travelDao.update(travel.copy(title = TravelTitle.nextAutoTitle(travelDao)))
         }
     }
 
@@ -415,8 +414,5 @@ class TravelJournalRepositoryImpl(
     companion object {
         /** Two detected destinations closer than this are treated as one. */
         private const val CITY_MERGE_METERS = 1_000.0
-
-        /** Auto-title pattern for trips named after their first visited city. */
-        private const val AUTO_TITLE_PREFIX = "Trip to "
     }
 }

@@ -45,6 +45,10 @@ import com.example.progmob_progetto_melluso.travel.StaleReason
  *   by the map trip-info screen.
  * @property liveDistanceMeters the distance in meters estimated from the
  *   steps of the ACTIVE travel (live), shown by the map trip-info screen.
+ * @property activeTraveledMillis the TRAVELED duration (tracked time) of the
+ *   ACTIVE travel, shown live by the map trip-info timer (0 when no trip).
+ *   It is re-emitted every second while the trip runs, so the timer advances
+ *   without the screen polling anything.
  * @property isLoading true until the first combined emission arrives.
  */
 /**
@@ -81,5 +85,6 @@ data class MapUiState(
     val shownGeofencePoiIds: Set<Long> = emptySet(),
     val liveSteps: Long = 0,
     val liveDistanceMeters: Double = 0.0,
+    val activeTraveledMillis: Long = 0,
     val isLoading: Boolean = true
 )

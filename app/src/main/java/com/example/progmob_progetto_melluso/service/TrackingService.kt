@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import com.example.progmob_progetto_melluso.MainActivity
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.core.AppContainer
+import com.example.progmob_progetto_melluso.travel.AutoStartGate
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PoiProximity
 import com.example.progmob_progetto_melluso.travel.TravelConfig
@@ -36,8 +37,14 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -51,13 +58,37 @@ import kotlinx.coroutines.launch
  * 2. fed to the travel repository, which applies the spatial/temporal filters
  *    and appends it to the active travel path.
  *
- * The update interval and the minimum displacement match [TravelConfig]
- * defaults (10 s / 10 m): fixes that do not move the user are never requested,
- * which keeps battery usage low on old devices.
+ * How often and how precisely the position is sampled follows [TrackingMode]:
+ * high accuracy while a trip is being recorded or the app is on screen (the
+ * path must follow the user and the automatic start needs timely fixes), and
+ * the cheap balanced profile with batched deliveries when no trip runs and the
+ * app is off screen, where the only thing left to watch is the POI geofence.
+ * Every threshold comes from [TravelConfig], so the provider is never asked for
+ * fixes the repository would discard anyway.
+ *
+ * The AUTO-START of a trip is gated on real movement: with the app in the
+ * foreground a trip opens only after [AutoStartGate] has seen the user move
+ * at least [TravelConfig.autoStartMovementMeters] between two fixes (a noise
+ * buffer of a few tens of meters), so sitting still with the app open never
+ * starts a trip. MANUAL starts (map / journal buttons) do not pass here.
+ *
+ * The service also OWNS the tracked clock of the trip: it opens it when
+ * tracking starts and closes it when tracking stops (see [onStartCommand] and
+ * [onDestroy]). That is what makes the trip duration keep growing while the
+ * phone tracks the user with the app in the background, instead of freezing at
+ * the last time the app was on screen.
  */
 class TrackingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /*
+     * NOTE on foreground detection: `onStartCommand` cannot distinguish "the
+     * app is visible" from "started while the screen is off", and the service
+     * runs in the same process as the activity, so the current visibility is
+     * read from the companion signal the ACTIVITY maintains
+     * ([appInForeground], see the companion docs).
+     */
 
     // Becomes true when the user asks to stop tracking (notification "Stop"
     // button, or swiping the app away). Persisted so a START_STICKY restart by
@@ -91,6 +122,12 @@ class TrackingService : Service() {
     // required for this sensor type.
     private val sensorManager by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
     private val stepRepository by lazy { AppContainer.stepRepository(applicationContext) }
+
+    /**
+     * Travel repository used only to bracket the tracked clock of the ongoing
+     * trip (see [onStartCommand] / [onDestroy]).
+     */
+    private val travelRepository by lazy { AppContainer.travelRepository(applicationContext) }
     private val stepSensor: Sensor? by lazy {
         sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
     }
@@ -109,6 +146,28 @@ class TrackingService : Service() {
     private var fenceNotifiedPoiId: Long? = null
     private val poiDao by lazy { AppContainer.database(applicationContext).poiDao() }
     private val travelConfig = TravelConfig()
+
+    // Moved-while-app-open gate: a foreground fix opens a trip only when the
+    // user really moved since the previous fix (the noise buffer keeps sensor
+    // jitter from starting trips while sitting still). The gate is per
+    // service instance, so a process restart always requires a fresh
+    // displacement before an auto-start can fire again.
+    private val autoStartGate by lazy { AutoStartGate(travelConfig.autoStartMovementMeters) }
+
+    // Sampling profile currently requested from the fused provider, so a state
+    // change that lands on the SAME profile does not re-issue the request:
+    // each call is a binder round trip and resets the provider's internal
+    // batching, and the state flow re-emits on every travel-table write.
+    private var appliedMode: TrackingMode? = null
+
+    // Whether the step listener is registered right now, so the trip-state
+    // collector can ask for register/unregister repeatedly without ending up
+    // with two registrations of the same listener.
+    private var stepSensorRegistered = false
+
+    // The single collector of [observeTrackingState], kept so a second start of
+    // the service replaces it instead of adding another one.
+    private var trackingStateJob: Job? = null
 
     /**
      * Processes one location fix.
@@ -129,10 +188,18 @@ class TrackingService : Service() {
         )
         // Let the map layer render the new position immediately.
         LocationUpdates.publish(sample)
-        // Persist it into the active travel path (filters live in the repository)
-        // and check the POI geofences for the near-POI notification.
+        // Persist it into the active travel path (filters live in the
+        // repository). Auto-start is allowed ONLY while the app is open, and
+        // only on a REAL displacement since the previous fix (AutoStartGate):
+        // a fix arriving from the background, or a foreground jitter fix while
+        // the user is still, never opens a trip (the manual/auto start
+        // requirement). With a trip already active the flag is irrelevant —
+        // the sample is recorded into it either way.
         serviceScope.launch {
-            AppContainer.travelRepository(applicationContext).recordLocation(sample)
+            val autoStart = appInForeground.value &&
+                autoStartGate.onFix(sample.latitude, sample.longitude)
+            AppContainer.travelRepository(applicationContext)
+                .recordLocation(sample, autoStart = autoStart)
             checkPoiFence(sample)
         }
     }
@@ -149,6 +216,13 @@ class TrackingService : Service() {
      * (computed independently in MapViewModel), so notification and UI agree.
      */
     private suspend fun checkPoiFence(sample: LocationSample) {
+        // A fix whose own reported error is larger than the fence cannot tell
+        // whether the user is inside it: outside a trip the provider samples
+        // with the cheaper IDLE profile, and such a fix would post a wrong
+        // "you are near ..." notification. The repository applies the same
+        // idea to the path, with its own tighter threshold.
+        val reportedError = sample.accuracyMeters?.toDouble()
+        if (reportedError != null && reportedError > travelConfig.poiVisitRadiusMeters) return
         val pois = poiDao.allPoisOnce()
         if (pois.isEmpty()) return
         val near = PoiProximity.near(
@@ -210,9 +284,8 @@ class TrackingService : Service() {
             IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        // Pedometer in background: the step counter sensor keeps running with
-        // the same lifecycle as the location tracking (foreground service).
-        registerStepSensor()
+        // The step sensor is NOT registered here: [observeTrackingState] turns
+        // it on only while a trip is actually being recorded.
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -227,7 +300,16 @@ class TrackingService : Service() {
         // tracking and forget any previous stop request.
         clearStopRequest()
         startAsForeground()
-        startLocationUpdates()
+        // Aligns the sampling profile and the pedometer with the current state
+        // and keeps them aligned from here on.
+        observeTrackingState()
+        // The trip's tracked clock follows the TRACKING, not the app visibility:
+        // while this service runs, the duration of an ongoing trip keeps growing
+        // even with the app in the background (pocket mode), and the journal,
+        // the map and the trip timer all read the same clock. The call is a
+        // no-op when no trip is active and idempotent for the running one, so a
+        // service restart never restarts the timer.
+        serviceScope.launch { travelRepository.startSession() }
         // Request one fresh fix immediately when tracking starts. This is
         // important after the user grants location permission from the map:
         // waiting for the first periodic update made the map appear empty
@@ -241,6 +323,13 @@ class TrackingService : Service() {
         unregisterReceiver(providerChangedReceiver)
         stopLocationUpdates()
         unregisterStepSensor()
+        // Close the tracked clock: the tail of the open segment becomes a
+        // stored block, so the trip keeps the time it was really tracked and
+        // stops growing once nothing tracks the user. It cannot run on
+        // serviceScope, which is cancelled right below (the write would be
+        // dropped); [teardownScope] is a single Room insert on the IO
+        // dispatcher, so keeping it alive for the process is bounded.
+        teardownScope.launch { travelRepository.endSession() }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -317,28 +406,100 @@ class TrackingService : Service() {
     }
 
     /**
-     * Requests location updates from the fused provider.
+     * Keeps the sampling profile and the pedometer aligned with what the app is
+     * actually doing.
      *
-     * How it works: guards against missing runtime permissions (the activity
-     * requests them before starting this service, but the check keeps the
-     * service safe if it is restarted by the system). Uses high accuracy when
-     * the fine location permission is granted (a street-adherent path needs
-     * frequent, precise fixes), falling back to balanced power with coarse
-     * permission only. The 5 s / 5 m thresholds keep the sampling dense; the
-     * repository accuracy/spatial filters discard the resulting noise.
+     * How it works: it observes the two states that can change while the
+     * service lives — whether a trip is running and whether the app is on
+     * screen — and reacts to each change. Both sources emit immediately when
+     * collected (the active-travel flow is a Room query with an initial
+     * emission, the visibility is a state flow), so the first profile is
+     * applied as soon as the service starts, and `distinctUntilChanged` makes
+     * every later emission a no-op while the pair is unchanged.
      */
-    private fun startLocationUpdates() {
+    private fun observeTrackingState() {
+        // A single collector per service instance: onStartCommand may run again
+        // (the map starts the service whenever it becomes usable), and stacking
+        // collectors would leave orphan Room subscriptions behind.
+        trackingStateJob?.cancel()
+        trackingStateJob = serviceScope.launch {
+            combine(
+                travelRepository.observeActiveTravel(),
+                appInForeground
+            ) { travel, foreground ->
+                TrackingState(tripActive = travel != null, appInForeground = foreground)
+            }
+                .distinctUntilChanged()
+                .collect { state ->
+                    requestLocationUpdates(
+                        TrackingMode.of(state.tripActive, state.appInForeground)
+                    )
+                    // The pedometer has a destination only while a trip is being
+                    // recorded: outside a trip the readings would only become a
+                    // baseline, so the hardware sensor is not needed at all.
+                    if (state.tripActive) registerStepSensor() else unregisterStepSensor()
+                    // Leaving the screen re-arms the movement gate: the last
+                    // foreground fix must not be compared with one taken after
+                    // the user moved with the app closed, or reopening the app
+                    // far from where it was left would open a trip by itself.
+                    if (!state.appInForeground) autoStartGate.reset()
+                }
+        }
+    }
+
+    /**
+     * The two facts that decide how the service tracks, grouped so the state
+     * comparison is a single value: whether a trip is open and whether the app
+     * is on screen.
+     */
+    private data class TrackingState(
+        val tripActive: Boolean,
+        val appInForeground: Boolean
+    )
+
+    /**
+     * Requests location updates from the fused provider with the thresholds of
+     * [mode].
+     *
+     * How it works: the request is built from [TravelConfig] and issued on the
+     * single [locationListener], which the provider REPLACES together with the
+     * previous request, so switching profile never leaves two streams running.
+     * The IDLE profile also sets a batching window: with no trip and the app
+     * off screen the fixes may be held and delivered together, letting the
+     * radio sleep. A call that lands on the profile already in use is dropped,
+     * and so is any call without the location permission (the activity asks for
+     * it before starting the service, but the guard keeps a system restart
+     * safe).
+     */
+    private fun requestLocationUpdates(mode: TrackingMode) {
         if (!hasLocationPermission()) return
-        val priority = if (hasFineLocationPermission()) {
+        if (mode == appliedMode) return
+        val active = mode == TrackingMode.ACTIVE
+        // Without the fine location permission the platform only allows the
+        // coarse provider: the profile is honoured as far as it can be.
+        val priority = if (active && hasFineLocationPermission()) {
             Priority.PRIORITY_HIGH_ACCURACY
         } else {
             Priority.PRIORITY_BALANCED_POWER_ACCURACY
         }
-        val request = LocationRequest.Builder(priority, UPDATE_INTERVAL_MS)
-            .setMinUpdateDistanceMeters(MIN_DISPLACEMENT_METERS)
-            .build()
+        val intervalMillis = if (active) {
+            travelConfig.locationIntervalMillis
+        } else {
+            travelConfig.idleLocationIntervalMillis
+        }
+        val displacementMeters = if (active) {
+            travelConfig.locationMinDisplacementMeters
+        } else {
+            travelConfig.idleLocationMinDisplacementMeters
+        }
+        val builder = LocationRequest.Builder(priority, intervalMillis)
+            .setMinUpdateDistanceMeters(displacementMeters)
+        if (!active) {
+            builder.setMaxUpdateDelayMillis(travelConfig.idleLocationMaxUpdateDelayMillis)
+        }
+        appliedMode = mode
         LocationServices.getFusedLocationProviderClient(this)
-            .requestLocationUpdates(request, locationListener, Looper.getMainLooper())
+            .requestLocationUpdates(builder.build(), locationListener, Looper.getMainLooper())
     }
 
     /**
@@ -347,7 +508,7 @@ class TrackingService : Service() {
      * How it works: called when the user enables location while the service is
      * already running, so the map gets a position without waiting for the next
      * periodic update (or an app restart). Failures are ignored: the periodic
-     * [startLocationUpdates] request will deliver fixes shortly after.
+     * [requestLocationUpdates] stream will deliver fixes shortly after.
      */
     private fun requestCurrentLocation() {
         if (!hasLocationPermission()) return
@@ -409,11 +570,15 @@ class TrackingService : Service() {
     }
 
     /**
-     * Starts listening to the hardware step counter, when the device has one.
-     * Devices without the sensor simply keep the pedometer at zero: the app
-     * must not crash on unsupported hardware (fault tolerance).
+     * Starts listening to the hardware step counter while a trip is recorded,
+     * when the device has one. Devices without the sensor simply keep the
+     * pedometer at zero: the app must not crash on unsupported hardware (fault
+     * tolerance). Idempotent, so the trip-state collector may call it on every
+     * emission. The repository re-baselines from the first reading of a travel,
+     * so registering per trip never imports steps walked outside it.
      */
     private fun registerStepSensor() {
+        if (stepSensorRegistered) return
         val sensor = stepSensor ?: return
         try {
             sensorManager.registerListener(
@@ -422,6 +587,7 @@ class TrackingService : Service() {
                 SensorManager.SENSOR_DELAY_NORMAL,
                 Handler(Looper.getMainLooper())
             )
+            stepSensorRegistered = true
         } catch (_: SecurityException) {
             // Android 10+: the ACTIVITY_RECOGNITION runtime permission was
             // denied, so the step sensor cannot be registered. The pedometer
@@ -431,12 +597,43 @@ class TrackingService : Service() {
     }
 
     private fun unregisterStepSensor() {
+        if (!stepSensorRegistered) return
+        stepSensorRegistered = false
         sensorManager.unregisterListener(stepListener)
     }
 
     companion object {
         /** Notification action used to stop tracking from the notification. */
         const val ACTION_STOP = "com.example.progmob_progetto_melluso.action.STOP_TRACKING"
+
+        /**
+         * Whether the app is on screen, published by the ACTIVITY lifecycle.
+         *
+         * How it works: the service keeps running with the screen off, so it
+         * cannot know by itself whether the app is visible. The activity is the
+         * only component whose lifecycle matches "the app is on screen", so it
+         * writes the signal in onStart/onStop. Two decisions read it: the
+         * automatic trip start is gated on it (a trip never opens from the
+         * background) and the sampling profile ([TrackingMode]). A state flow
+         * rather than a bare flag so the service can react to CHANGES of it
+         * with the same collector that watches the trip state.
+         */
+        private val _appInForeground = MutableStateFlow(false)
+
+        /** Observable app-visibility signal (see [_appInForeground]). */
+        val appInForeground: StateFlow<Boolean> = _appInForeground.asStateFlow()
+
+        /** Called by the activity in ON_START (true) and ON_STOP (false). */
+        fun setAppInForeground(inForeground: Boolean) {
+            _appInForeground.value = inForeground
+        }
+
+        /**
+         * Scope for the write that must outlive the service: closing the
+         * tracked clock in onDestroy cannot use the service scope, which is
+         * cancelled immediately afterwards. The work is one Room insert on IO.
+         */
+        private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         private const val PREFS_NAME = "tracking_service"
         private const val KEY_STOP_REQUESTED = "stop_requested"
@@ -446,7 +643,5 @@ class TrackingService : Service() {
         private const val FENCE_CHANNEL_ID = "geofence"
         private const val FENCE_NOTIFICATION_ID = 2
         private const val FENCE_OPEN_CODE = 101
-        private const val UPDATE_INTERVAL_MS = 5_000L
-        private const val MIN_DISPLACEMENT_METERS = 5f
     }
 }

@@ -31,14 +31,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -131,6 +128,7 @@ fun TravelJournalScreen(modifier: Modifier = Modifier) {
                 pending = uiState.isTravelActionPending,
                 steps = uiState.activeSteps,
                 distanceMeters = uiState.activeDistanceMeters,
+                traveledMillis = uiState.activeTraveledMillis,
                 onStart = viewModel::startTravel,
                 onStop = viewModel::stopTravel,
                 onClick = { uiState.activeTravel?.let { viewModel.openTravel(it.travelId) } }
@@ -156,6 +154,7 @@ fun TravelJournalScreen(modifier: Modifier = Modifier) {
                         items(closedTravels, key = { it.travelId }) { travel ->
                             JournalTravelCard(
                                 travel = travel,
+                                traveledMillis = uiState.traveledMillisById[travel.travelId],
                                 onClick = { viewModel.openTravel(travel.travelId) },
                                 onDelete = { pendingDelete = travel }
                             )
@@ -201,6 +200,7 @@ private fun CallToActionBar(
     pending: Boolean,
     steps: Long,
     distanceMeters: Double,
+    traveledMillis: Long,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onClick: () -> Unit,
@@ -249,46 +249,36 @@ private fun CallToActionBar(
             // card — no need to open the detail (the transport-reporting requirement).
             if (isActive && activeTravel != null) {
                 Spacer(Modifier.height(12.dp))
-                // A new travel gets a new composition key, so the timer state
-                // cannot be reused from the trip that was just stopped.
-                key(activeTravel.travelId) {
-                    OngoingTripStats(
-                        startUtcMillis = activeTravel.startUtcMillis,
-                        steps = steps,
-                        distanceMeters = distanceMeters
-                    )
-                }
+                OngoingTripStats(
+                    traveledMillis = traveledMillis,
+                    steps = steps,
+                    distanceMeters = distanceMeters
+                )
             }
         }
     }
 }
 
 /**
- * Live timer + pedometer figures of the ongoing trip, shown in the journal
- * card: duration ticks every second, steps and distance come from the shared
- * pedometer tables (reactive flows).
+ * Pedometer figures + TRAVELED duration of the ongoing trip, shown in the
+ * journal card. The duration comes from the ViewModel state (the traveled-
+ * duration requirement: tracked time, NOT the raw wall clock from the start),
+ * so the card shows the same value as the map timer and the detail screen.
  */
 @Composable
 private fun OngoingTripStats(
-    startUtcMillis: Long,
+    traveledMillis: Long,
     steps: Long,
     distanceMeters: Double,
     modifier: Modifier = Modifier
 ) {
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000L)
-            now = System.currentTimeMillis()
-        }
-    }
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         OngoingStat(
             label = stringResource(R.string.journal_stat_duration),
-            value = formatDuration((now - startUtcMillis).coerceAtLeast(0L)),
+            value = formatDuration(traveledMillis),
             modifier = Modifier.weight(1f)
         )
         OngoingStat(
@@ -376,6 +366,7 @@ private fun EmptyJournal() {
 @Composable
 private fun JournalTravelCard(
     travel: JournalTravel,
+    traveledMillis: Long?,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -405,6 +396,8 @@ private fun JournalTravelCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(Modifier.height(4.dp))
+                TraveledDurationText(traveledMillis = traveledMillis)
             }
             IconButton(onClick = onDelete) {
                 Icon(
@@ -423,4 +416,24 @@ private fun formatTravelRange(startUtc: Long, endUtc: Long?): String {
     val start = day.format(Date(startUtc))
     val end = endUtc?.let { day.format(Date(it)) }
     return if (end == null) "From $start" else "$start \u2013 $end"
+}
+
+/**
+ * Small row with the TRAVELED duration of a trip (the traveled-duration
+ * requirement): the time this trip was tracked, NOT the raw wall-clock time
+ * from the start (which would also count the hours nobody was tracking the
+ * trip). Only rendered when at least one session block or a running segment
+ * exists — otherwise the row stays invisible.
+ */
+@Composable
+private fun TraveledDurationText(traveledMillis: Long?) {
+    // The value arrives from the ViewModel state (MVVM separation); null or
+    // zero means "no traveled time recorded yet": the row stays invisible.
+    val durationMillis = traveledMillis ?: 0L
+    if (durationMillis <= 0L) return
+    Text(
+        text = stringResource(R.string.journal_traveled_duration, formatDuration(durationMillis)),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }

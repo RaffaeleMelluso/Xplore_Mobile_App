@@ -48,7 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -158,7 +158,8 @@ fun MapScreen(
                 mapRepository = AppContainer.mapRepository(context),
                 poiRepository = AppContainer.poiRepository(context),
                 poiVoteRepository = AppContainer.poiVoteRepository(context),
-                stepRepository = AppContainer.stepRepository(context)
+                stepRepository = AppContainer.stepRepository(context),
+                travelRepository = AppContainer.travelRepository(context)
             )
         }
     )
@@ -212,23 +213,28 @@ fun MapScreen(
     // place that was already shown.
     var autoSheetVisible by remember { mutableStateOf(false) }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     // Location state is re-checked on every ON_RESUME (returning from the
     // system settings) AND polled while the screen is composed: enabling GPS
     // from the quick settings toggle does NOT pause the activity, so no
     // lifecycle event fires and ON_RESUME alone would leave the block screen
-    // stuck until the app is restarted. The poll is cheap (two system calls
-    // every couple of seconds) and makes the map appear right after the user
-    // turns location on, without restarting anything.
+    // stuck until the app is restarted. The cadence is adapted to what the poll
+    // can still change: FAST while permission/location are missing (the block
+    // screen must disappear as soon as the user fixes it) and SLOW once the map
+    // works, where the only thing left to notice is location being turned OFF
+    // from the same quick toggle. Two system calls every few seconds cost
+    // nothing, but there is no reason to pay them at full rate forever.
     var locationRefreshTick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(LOCATION_POLL_MILLIS)
-            locationRefreshTick++
-        }
-    }
     val locationPermissionGranted = remember(locationRefreshTick) { hasLocationPermission(context) }
     val gpsEnabled = remember(locationRefreshTick) { isGpsEnabled(context) }
     val mapReady = locationPermissionGranted && gpsEnabled
+    LaunchedEffect(mapReady) {
+        while (true) {
+            delay(if (mapReady) LOCATION_OK_POLL_MILLIS else LOCATION_POLL_MILLIS)
+            locationRefreshTick++
+        }
+    }
 
     // If permission was granted from this screen (rather than by the initial
     // request in MainActivity), the tracking service may not be running yet.
@@ -243,8 +249,6 @@ fun MapScreen(
             )
         }
     }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
 
     Box(modifier = modifier.fillMaxSize()) {
         // The map is ALWAYS created here, even before location is usable: the
@@ -648,6 +652,9 @@ fun MapScreen(
         }
 
         // Recenter button: only useful once the map is actually usable.
+        // It sits ABOVE the start/stop trip button (bottom-end stack: trip
+        // button first, recenter above it), matching the bottom-start map
+        // actions so the two corners read the same way.
         if (mapReady) {
             MapActionFab(
                 onClick = { recenterTick++ },
@@ -655,7 +662,7 @@ fun MapScreen(
                 contentDescription = stringResource(R.string.map_recenter),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp)
+                    .padding(end = 16.dp, bottom = 80.dp)
             )
         }
 
@@ -689,7 +696,49 @@ fun MapScreen(
                 activeTravel = uiState.travels.firstOrNull { it.endUtcMillis == null },
                 steps = uiState.liveSteps,
                 distanceMeters = uiState.liveDistanceMeters,
+                traveledMillis = uiState.activeTraveledMillis,
                 onDismiss = { showTripInfo = false }
+            )
+        }
+
+        // Start/stop trip button (the manual trip-start requirement): the
+        // trip does NOT start by itself from the background anymore. From the
+        // map the user starts it explicitly (button), or it auto-starts while
+        // the app is open AND they actually move (a displacement buffer keeps
+        // sensor jitter from starting it while sitting still). Stopping stays
+        // manual too, here or in the journal. EXTENDED floating button with an
+        // explicit label: the trip state (running or not) must be readable at
+        // a glance, not guessed from a bare icon. It keeps the primary
+        // container color so it stands out from the neutral map-action FABs.
+        // Anchored at the very bottom-end corner (the recenter button moved
+        // above it): the most-used control is the one closest to the thumb.
+        if (mapReady) {
+            val activeTravel = uiState.travels.firstOrNull { it.endUtcMillis == null }
+            ExtendedFloatingActionButton(
+                onClick = {
+                    // Intents to the ViewModel; the map screen holds no
+                    // repository (MVVM separation).
+                    if (activeTravel == null) viewModel.startTravelFromMap() else viewModel.stopTravelFromMap()
+                },
+                text = {
+                    Text(
+                        text = stringResource(
+                            if (activeTravel == null) R.string.map_start_trip else R.string.map_stop_trip
+                        ),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                icon = {
+                    Icon(
+                        imageVector = if (activeTravel == null) Icons.Filled.PlayArrow else Icons.Filled.Close,
+                        contentDescription = null
+                    )
+                },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
             )
         }
 
@@ -749,8 +798,14 @@ private const val FOLLOW_ZOOM = 16.0
 /** City-view camera used until the first location fix arrives. */
 private val DEFAULT_PRE_FIX_CAMERA = LatLng(45.0703, 7.6869)
 
-/** How often the location permission/GPS state is re-checked while visible. */
+/** How often the location permission/GPS state is re-checked while blocked. */
 private const val LOCATION_POLL_MILLIS = 2_000L
+
+/**
+ * How often it is re-checked once the map works: only to notice location being
+ * switched off from outside the app, which fires no lifecycle event.
+ */
+private const val LOCATION_OK_POLL_MILLIS = 10_000L
 
 /**
  * Full-screen block shown when the map cannot use location.
