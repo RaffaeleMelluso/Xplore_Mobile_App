@@ -366,9 +366,11 @@ class TravelRepositoryImplTest {
         val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
 
         repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
-        // around 150m from the anchor: beyond the radius, but the trip is NOT
-        // closed behind the user's back — the point is recorded normally.
-        val result = repository.recordLocation(LocationSample(0.0, 0.00135, 1_000L), autoStart = true)
+        // Around 150 m from the anchor one minute later (~9 km/h, a real walk):
+        // beyond the radius, but the trip is NOT closed behind the user's back —
+        // the point is recorded normally. The gap is a plausible one because a
+        // 150 m hop in one second would now be rejected as a GPS teleport.
+        val result = repository.recordLocation(LocationSample(0.0, 0.00135, 60_000L), autoStart = true)
 
         assertEquals(LocationRecordResult.Recorded(1L, false), result)
         verify(travelDao, never()).update(any())
@@ -503,7 +505,11 @@ class TravelRepositoryImplTest {
             travelDao = travelDao,
             pathPointDao = pathPointDao,
             poiDao = poiDao(), travelPoiVisitDao = visitDao(), sessionBlockDao = sessionBlockDao(), config = config,
-            clock = { now }
+            clock = { now },
+            // The duration is MEASURED on the monotonic clock, so the test
+            // drives that one too: with the wall clock alone the length of a
+            // segment would be measured against a clock the test does not own.
+            monotonicMillis = { now }
         )
         // Closes any session another test left open, then starts fresh.
         repository.endSession()
@@ -548,7 +554,8 @@ class TravelRepositoryImplTest {
             travelDao = travelDao,
             pathPointDao = pathPointDao,
             poiDao = poiDao(), travelPoiVisitDao = visitDao(), sessionBlockDao = sessionBlockDao, config = config,
-            clock = { now }
+            clock = { now },
+            monotonicMillis = { now }
         )
         repository.endSession()
         repository.startTravel()
@@ -567,5 +574,61 @@ class TravelRepositoryImplTest {
 
         // The stored block (3 s) plus the open segment: right away, +1 s, +2 s.
         assertEquals(listOf(3_000L, 4_000L, 5_000L), values)
+    }
+
+    /**
+     * Verifica che un fix che implica una velocità impossibile (un "teleport"
+     * del GPS, o un fix vecchio consegnato con un timestamp nuovo) venga
+     * scartato: un solo punto così disegnerebbe una riga dritta attraverso la
+     * mappa e rovinerebbe la forma dell'intero viaggio.
+     */
+    @Test
+    fun recordLocation_dropsAFixImplyingAnImpossibleSpeed() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
+
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L), autoStart = true)
+        // ~11 km east 30 s later: over 1300 km/h, impossible for a traveler on
+        // this app. Without the outlier gate the filters would have STORED it
+        // (the displacement and the elapsed time both pass).
+        val result = repository.recordLocation(LocationSample(0.1, 0.0, 30_000L), autoStart = true)
+
+        assertEquals(LocationRecordResult.Skipped, result)
+        verify(pathPointDao, times(1)).insert(any())
+    }
+
+    /**
+     * Verifica che un fix accettato ma poco informativo (errore dichiarato
+     * grande rispetto al movimento) venga ammorbidito verso l'ultimo punto
+     * registrato: il percorso segue il movimento invece del rumore, senza
+     * scartare il fix (che i filtri hanno già ritenuto valido).
+     */
+    @Test
+    fun recordLocation_smoothsANoisyFixTowardTheLastPoint() = runTest {
+        val travelDao = mock<TravelDao>()
+        val pathPointDao = mock<TravelPathPointDao>()
+        whenever(travelDao.activeTravelForUserOnce(any())).thenReturn(activeTravel(1L))
+        whenever(pathPointDao.pointsForTravelOnce(1L)).thenReturn(emptyList())
+
+        val repository = TravelRepositoryImpl(travelDao, pathPointDao, poiDao(), visitDao(), sessionBlockDao(), config)
+
+        // First point, precisely measured: it becomes the reference.
+        repository.recordLocation(LocationSample(0.0, 0.0, 0L, accuracyMeters = 5f), autoStart = true)
+        // ~55 m east with a 20 m reported error: accepted (the error is under
+        // the gate and the movement over the threshold), but only partially
+        // trusted, so it is stored BETWEEN the previous point and the raw fix.
+        val result = repository.recordLocation(
+            LocationSample(0.0005, 0.0, 5_000L, accuracyMeters = 20f), autoStart = true
+        )
+
+        assertTrue(result is LocationRecordResult.Recorded)
+        verify(pathPointDao, times(2)).insert(any())
+        verify(pathPointDao).insert(
+            argThat { latitude > 0.0 && latitude < 0.0005 }
+        )
     }
 }

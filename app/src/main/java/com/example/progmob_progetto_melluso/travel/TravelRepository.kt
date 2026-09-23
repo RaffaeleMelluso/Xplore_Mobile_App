@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.Flow
  *
  * Responsibilities:
  * - keep at most one active travel (the "libretto" entry currently being built);
- * - record path points applying spatial/temporal filters;
+ * - record path points applying spatial/temporal filters, cleaning the
+ *   impossible and the untrustworthy ones ([PathCleaning]);
  * - expose the staleness signals ([TravelStaleness], evaluated in the UI)
  *   that let the user CONFIRM the end of a vacation instead of having the
  *   app close the trip silently in the background.
@@ -68,6 +69,9 @@ interface TravelRepository {
      * It is the time the trip was TRACKED, not the raw wall clock (end minus
      * start), which would also count the hours the phone was not tracked at all
      * while the trip stayed open.
+     *
+     * The duration is measured on a monotonic clock and only STAMPED on the wall
+     * clock: a correction of the system time cannot invent tracked time.
      */
     fun observeTraveledDuration(travelId: Long): Flow<Long>
 
@@ -77,10 +81,12 @@ interface TravelRepository {
      * How it works: records the sample into the active travel when one is
      * running; with [autoStart] enabled it also opens a new travel when none
      * exists (the "I'm moving with the app open" behavior). The sample is
-     * then filtered with the spatial/temporal thresholds and, if meaningful,
-     * appended as a path point. The trip is never closed silently here: when
-     * the user is far from the anchor or days passed, [TravelStaleness] flags
-     * the trip in the UI layer and the user confirms the close.
+     * then filtered with the spatial/temporal thresholds, dropped when it
+     * implies an impossible speed (an outlier, not a movement) and, if
+     * meaningful, cleaned and appended as a path point. The trip is never
+     * closed silently here: when the user is far from the anchor or days
+     * passed, [TravelStaleness] flags the trip in the UI layer and the user
+     * confirms the close.
      *
      * @param sample The provider-agnostic location reading to process.
      * @param autoStart When true, a location fix with no active travel opens

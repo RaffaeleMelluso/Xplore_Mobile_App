@@ -26,18 +26,22 @@ import java.util.TimeZone
  * How it works: the hardware step sensor reports a CUMULATIVE count since the
  * device booted. [onStepCount] computes the delta with the last value seen
  * (kept in memory, restored from the travel checkpoint after a restart) and
- * accumulates it into the `step_daily_summaries` row of the current local day
- * of the active travel. The distance is estimated from the steps with a fixed
+ * accumulates it into the `step_daily_summaries` row of the local day in which
+ * the steps were WALKED. The distance is estimated from the steps with a fixed
  * average stride length. Readings are only stored while a trip is
  * active, so the totals always belong to a travel and follow the user scope
  * (the DAO totals are per travelId, the travel itself is per user).
+ *
+ * The reading carries its own time ([onStepCount] receives it): every stamp
+ * written here is the instant of the SENSING, never "when the app processed
+ * it", which is what makes a reading delivered late still land in the right
+ * day bucket.
  *
  * @param stepCheckpointDao DAO of `step_checkpoints` (resume point per travel).
  * @param stepDailySummaryDao DAO of `step_daily_summaries` (per-day totals).
  * @param travelDao DAO of `travels`, used to find the active travel.
  * @param timeZoneIdProvider supplies the reference timezone used to bucket the
  *   steps into local days (the same one stored on each travel).
- * @param clock supplies "now" in UTC millis; injectable for deterministic tests.
  * @param userIdProvider supplies the signed-in user id owning the active travel.
  * @param strideLengthMeters average step length used to estimate the distance.
  */
@@ -47,7 +51,6 @@ class StepRepositoryImpl(
     private val stepDailySummaryDao: StepDailySummaryDao,
     private val travelDao: TravelDao,
     private val timeZoneIdProvider: () -> String = { TimeZone.getDefault().id },
-    private val clock: () -> Long = System::currentTimeMillis,
     private val userIdProvider: () -> String = { "local-user" },
     private val strideLengthMeters: Double = DEFAULT_STRIDE_LENGTH_METERS
 ) : StepRepository {
@@ -65,7 +68,7 @@ class StepRepositoryImpl(
     // otherwise concurrent events could be double-counted or lost.
     private val mutex = Mutex()
 
-    override suspend fun onStepCount(cumulativeSteps: Long) = mutex.withLock {
+    override suspend fun onStepCount(cumulativeSteps: Long, readingUtcMillis: Long) = mutex.withLock {
         if (cumulativeSteps <= 0) return@withLock
 
         val activeBeforeReading = activeTravelForCurrentUser()
@@ -114,14 +117,16 @@ class StepRepositoryImpl(
         // otherwise walking at home would silently start a vacation.
         val active = activeBeforeReading ?: return@withLock
         lastSensorTravelId = active.id
-        saveCheckpoint(active.id, cumulativeSteps)
+        saveCheckpoint(active.id, cumulativeSteps, readingUtcMillis)
 
-        // Accumulate into the local-day bucket of the active travel. On a day
-        // change the delta is attributed to the new day: the summary of the
-        // previous day stays untouched, and the trip total (SUM of the rows)
-        // remains exact.
+        // Accumulate into the local-day bucket of the active travel, using the
+        // day the steps were actually WALKED (the sensing time) and not the
+        // moment the event was processed: a reading delivered just after
+        // midnight belongs to the day before. On a day change the delta is
+        // attributed to the new day: the summary of the previous day stays
+        // untouched, and the trip total (SUM of the rows) remains exact.
         val timeZoneId = timeZoneIdProvider()
-        val now = clock()
+        val now = readingUtcMillis
         val localDate = localDateOf(now, timeZoneId)
         val existing = stepDailySummaryDao.summaryForTravelAndDateOnce(active.id, localDate, timeZoneId)
         stepDailySummaryDao.upsert(
@@ -170,14 +175,14 @@ class StepRepositoryImpl(
     }
 
     /** Persists the resume point of the active travel (last raw sensor value). */
-    private suspend fun saveCheckpoint(travelId: Long, value: Long) {
+    private suspend fun saveCheckpoint(travelId: Long, value: Long, readingUtcMillis: Long) {
         val timeZoneId = timeZoneIdProvider()
         stepCheckpointDao.upsert(
             StepCheckpointEntity(
                 travelId = travelId,
                 lastSensorValue = value,
-                lastCheckpointUtcMillis = clock(),
-                lastKnownLocalDate = localDateOf(clock(), timeZoneId),
+                lastCheckpointUtcMillis = readingUtcMillis,
+                lastKnownLocalDate = localDateOf(readingUtcMillis, timeZoneId),
                 lastKnownTimeZoneId = timeZoneId
             )
         )

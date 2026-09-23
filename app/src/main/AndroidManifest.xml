@@ -7,7 +7,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Activity recognition, declared twice on purpose, and NOT capped by API
+         level:
+         - android.permission.ACTIVITY_RECOGNITION is the RUNTIME permission
+           Android 10+ requires for the step counter sensor (the onboarding
+           pages ask for it);
+         - com.google.android.gms.permission.ACTIVITY_RECOGNITION is the one the
+           Activity Recognition transition API guide requires the app to
+           declare, with no API-level restriction. It is a normal permission
+           (granted automatically), so declaring it on every version is free,
+           while capping it would risk the transition registration being
+           refused on modern devices. -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
 
     <!-- The camera is optional: capture is delegated to the system camera app. -->
     <uses-feature
@@ -40,6 +52,14 @@
             android:name=".service.TrackingService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!-- Delivers the Activity Recognition transitions to the app. Not
+             exported: the platform reaches it through the PendingIntent the
+             tracking service registers, whose component is set explicitly, so
+             no other app can address or intercept it. -->
+        <receiver
+            android:name=".service.ActivityTransitionsReceiver"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

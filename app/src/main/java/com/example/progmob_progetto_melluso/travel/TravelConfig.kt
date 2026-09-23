@@ -19,6 +19,11 @@ package com.example.progmob_progetto_melluso.travel
  *   still and would draw zigzag artifacts on the path. The very first fix of
  *   a travel is always accepted, otherwise no anchor could ever be created
  *   with a cold GPS.
+ * @property maxPlausibleSpeedKmh Fastest movement still considered real: a
+ *   fix implying a higher speed is a GPS "teleport" (a wild jump or a stale
+ *   fix delivered late), not a movement, and is dropped before it can draw a
+ *   straight line across the map. 300 km/h leaves high-speed trains and
+ *   airplanes outside the app's scope while cutting the impossible jumps.
  * @property tripEndDistanceMeters Straight-line distance from the trip's anchor
  *   point (its first recorded location) beyond which the trip is considered
  *   finished: leaving the vacation area by this distance means the vacation
@@ -52,11 +57,23 @@ package com.example.progmob_progetto_melluso.travel
  *   with tens of thousands of simulated users.
  * @property locationIntervalMillis Desired interval between location fixes
  *   while a trip is being recorded (or the app is visible). It is the sampling
- *   rate of the fused provider: asking faster than [minElapsedMillis] is pure
- *   battery cost, because the repository would discard every fix in between.
+ *   rate of the fused provider, set equal to [minElapsedMillis] so the provider
+ *   is exactly as fast as the path filter: no fix is fetched to be thrown away,
+ *   and none is late when the filter opens. The value is a compromise between
+ *   path quality and battery: positions are never precise, and more frequent
+ *   requests let the provider's own fusion and smoothing do a better job (the
+ *   sensing lecture shows a 3 s rate for that reason), while the filters below
+ *   keep the number of WRITES — the expensive part — bounded.
  * @property locationMinDisplacementMeters Minimum displacement before the
  *   fused provider delivers a fix while a trip is recorded: standing still
- *   costs no fix at all. Matches the spatial granularity the path filter uses.
+ *   costs no fix at all. Matches the spatial granularity the path filter uses,
+ *   for the same reason as [locationIntervalMillis].
+ * @property pathSmoothingReferenceMeters Accuracy (in meters) up to which a fix
+ *   is considered fully trustworthy. A fix noisier than this is blended toward
+ *   the last recorded point by how much worse it is (see
+ *   [PathCleaning.smooth]), so a noisy fix cannot drag the path away on its own.
+ *   Kept below [maxAccuracyMeters]: the blends only ever apply to the fixes the
+ *   accuracy gate already accepted, and a fully trusted fix is never altered.
  * @property idleLocationIntervalMillis Sampling interval used when NO trip is
  *   running and the app is not on screen: the only thing left to watch is the
  *   POI geofence ([poiVisitRadiusMeters]), which needs no second-by-second
@@ -71,16 +88,18 @@ package com.example.progmob_progetto_melluso.travel
  */
 data class TravelConfig(
     val minDistanceMeters: Double = 5.0,
-    val minElapsedMillis: Long = 10_000L,
+    val minElapsedMillis: Long = 5_000L,
     val maxAccuracyMeters: Float = 25f,
+    val maxPlausibleSpeedKmh: Double = 300.0,
+    val pathSmoothingReferenceMeters: Double = 15.0,
     val autoStartMovementMeters: Double = 30.0,
     val tripEndDistanceMeters: Double = 50_000.0,
     val tripEndDurationMillis: Long = 24L * 60L * 60L * 1_000L,
     val poiVisitRadiusMeters: Double = 150.0,
     val ghostVisibilityRadiusMeters: Double = 10_000.0,
     val maxGhostsShown: Int = 60,
-    val locationIntervalMillis: Long = 10_000L,
-    val locationMinDisplacementMeters: Float = 10f,
+    val locationIntervalMillis: Long = 5_000L,
+    val locationMinDisplacementMeters: Float = 5f,
     val idleLocationIntervalMillis: Long = 60_000L,
     val idleLocationMinDisplacementMeters: Float = 100f,
     val idleLocationMaxUpdateDelayMillis: Long = 300_000L
