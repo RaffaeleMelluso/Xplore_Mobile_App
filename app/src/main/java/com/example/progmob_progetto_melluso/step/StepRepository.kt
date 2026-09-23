@@ -22,15 +22,24 @@ interface StepRepository {
      * Processes one raw cumulative reading of the step counter sensor.
      *
      * How it works: the sensor counts steps from device boot; the delta with
-     * the previous reading is attributed to the current local day of the ACTIVE
-     * travel and stored in `step_daily_summaries`, while `step_checkpoints`
-     * keeps the last value so a process restart can resume without double
-     * counting. Readings without an active travel are ignored (no trip, no
-     * steps): the pedometer never creates a travel by itself.
+     * the previous reading is attributed to the local day the reading was TAKEN
+     * and stored in `step_daily_summaries`, while `step_checkpoints` keeps the
+     * last value so a process restart can resume without double counting.
+     * Readings without an active travel are ignored (no trip, no steps): the
+     * pedometer never creates a travel by itself.
+     *
+     * The reading time is passed in instead of being read here on purpose: the
+     * hardware reports when the step happened (`SensorEvent.timestamp`, an
+     * elapsed-time value converted to the wall clock by
+     * [com.example.progmob_progetto_melluso.core.SensorTime]), which is not the
+     * moment this method happens to run. Stamping with "now" would date the
+     * steps late by however long the delivery took, and a reading that lands
+     * after midnight would even be bucketed into the wrong day.
      *
      * @param cumulativeSteps the latest cumulative count from the sensor.
+     * @param readingUtcMillis when the reading was taken, in UTC millis.
      */
-    suspend fun onStepCount(cumulativeSteps: Long)
+    suspend fun onStepCount(cumulativeSteps: Long, readingUtcMillis: Long)
 
     /** Live total steps of the active travel (0 when none is ongoing). */
     fun observeActiveTravelSteps(): Flow<Long>

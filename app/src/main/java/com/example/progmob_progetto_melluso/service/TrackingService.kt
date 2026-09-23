@@ -21,12 +21,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.example.progmob_progetto_melluso.MainActivity
 import com.example.progmob_progetto_melluso.R
 import com.example.progmob_progetto_melluso.core.AppContainer
+import com.example.progmob_progetto_melluso.core.SensorTime
 import com.example.progmob_progetto_melluso.travel.AutoStartGate
 import com.example.progmob_progetto_melluso.travel.LocationSample
 import com.example.progmob_progetto_melluso.travel.PoiProximity
@@ -60,17 +62,27 @@ import kotlinx.coroutines.launch
  *
  * How often and how precisely the position is sampled follows [TrackingMode]:
  * high accuracy while a trip is being recorded or the app is on screen (the
- * path must follow the user and the automatic start needs timely fixes), and
- * the cheap balanced profile with batched deliveries when no trip runs and the
- * app is off screen, where the only thing left to watch is the POI geofence.
- * Every threshold comes from [TravelConfig], so the provider is never asked for
- * fixes the repository would discard anyway.
+ * path must follow the user and the automatic start needs timely fixes), the
+ * cheap balanced profile with batched deliveries when no trip runs and the app
+ * is off screen (where the only thing left to watch is the POI geofence), and
+ * NO position at all while that same situation is joined by the platform
+ * saying the user is standing still. Every threshold comes from [TravelConfig],
+ * so the provider is never asked for fixes the repository would discard anyway.
+ *
+ * The ACTIVITY RECOGNITION transitions ([ActivityRecognitionMonitor]) are what
+ * makes the pause safe: the app stops asking for positions only because the
+ * platform will wake it when the user starts moving again, and the same signal
+ * is a second, independent vote on the automatic trip start. The subscription
+ * lives exactly as long as this service, so nothing is monitored while the app
+ * is not tracking.
  *
  * The AUTO-START of a trip is gated on real movement: with the app in the
  * foreground a trip opens only after [AutoStartGate] has seen the user move
  * at least [TravelConfig.autoStartMovementMeters] between two fixes (a noise
- * buffer of a few tens of meters), so sitting still with the app open never
- * starts a trip. MANUAL starts (map / journal buttons) do not pass here.
+ * buffer of a few tens of meters) AND, when the platform has an opinion, only
+ * while it reports the user as actually moving ([AutoStartPolicy]), so sitting
+ * still with the app open never starts a trip. MANUAL starts (map / journal
+ * buttons) do not pass here.
  *
  * The service also OWNS the tracked clock of the trip: it opens it when
  * tracking starts and closes it when tracking stops (see [onStartCommand] and
@@ -123,6 +135,12 @@ class TrackingService : Service() {
     private val sensorManager by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
     private val stepRepository by lazy { AppContainer.stepRepository(applicationContext) }
 
+    // Activity Recognition (context based on actions): subscribed while this
+    // service lives, i.e. exactly while the tracking decisions are being taken.
+    private val activityRecognitionMonitor by lazy {
+        ActivityRecognitionMonitor(applicationContext)
+    }
+
     /**
      * Travel repository used only to bracket the tracked clock of the ongoing
      * trip (see [onStartCommand] / [onDestroy]).
@@ -134,7 +152,18 @@ class TrackingService : Service() {
     private val stepListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             val value = event.values.firstOrNull()?.toLong() ?: return
-            serviceScope.launch { stepRepository.onStepCount(value) }
+            // The reading is stored with the time the SENSOR reports, not with
+            // the moment this callback happens to run: `event.timestamp` is
+            // nanoseconds elapsed since boot, so it is converted into a wall
+            // clock instant (SensorTime). A delayed delivery (a busy main
+            // thread, a dozing device) therefore cannot date the steps late,
+            // nor push a reading taken before midnight into the next day.
+            val readingUtcMillis = SensorTime.wallClockUtcMillis(
+                sensorNanos = event.timestamp,
+                wallClockNowMillis = System.currentTimeMillis(),
+                elapsedRealtimeMillis = SystemClock.elapsedRealtime()
+            )
+            serviceScope.launch { stepRepository.onStepCount(value, readingUtcMillis) }
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -196,8 +225,17 @@ class TrackingService : Service() {
         // requirement). With a trip already active the flag is irrelevant —
         // the sample is recorded into it either way.
         serviceScope.launch {
-            val autoStart = appInForeground.value &&
+            // The gate is fed only while the app is on screen (short-circuit):
+            // an automatic trip may only come from a movement observed ENTIRELY
+            // with the app open. The Activity Recognition state is then the
+            // second vote on that movement (AutoStartPolicy).
+            val movedBeyondBuffer = appInForeground.value &&
                 autoStartGate.onFix(sample.latitude, sample.longitude)
+            val autoStart = AutoStartPolicy.shouldStart(
+                appInForeground = appInForeground.value,
+                movedBeyondBuffer = movedBeyondBuffer,
+                motion = MotionSignals.motion.value
+            )
             AppContainer.travelRepository(applicationContext)
                 .recordLocation(sample, autoStart = autoStart)
             checkPoiFence(sample)
@@ -300,6 +338,11 @@ class TrackingService : Service() {
         // tracking and forget any previous stop request.
         clearStopRequest()
         startAsForeground()
+        // Subscribe to the Activity Recognition transitions (idempotent, and a
+        // no-op while the permission is missing): from now on the platform
+        // answers "is the user moving?", which is what makes pausing the GPS
+        // safe and what gives the automatic start a second opinion.
+        activityRecognitionMonitor.start()
         // Aligns the sampling profile and the pedometer with the current state
         // and keeps them aligned from here on.
         observeTrackingState()
@@ -321,6 +364,10 @@ class TrackingService : Service() {
 
     override fun onDestroy() {
         unregisterReceiver(providerChangedReceiver)
+        // Nothing tracks anymore, so nothing has to be watched: the Activity
+        // Recognition subscription goes away with the service, and so does the
+        // state it produced.
+        activityRecognitionMonitor.stop()
         stopLocationUpdates()
         unregisterStepSensor()
         // Close the tracked clock: the tail of the open segment becomes a
@@ -409,13 +456,14 @@ class TrackingService : Service() {
      * Keeps the sampling profile and the pedometer aligned with what the app is
      * actually doing.
      *
-     * How it works: it observes the two states that can change while the
-     * service lives — whether a trip is running and whether the app is on
-     * screen — and reacts to each change. Both sources emit immediately when
-     * collected (the active-travel flow is a Room query with an initial
-     * emission, the visibility is a state flow), so the first profile is
-     * applied as soon as the service starts, and `distinctUntilChanged` makes
-     * every later emission a no-op while the pair is unchanged.
+     * How it works: it observes the three states that can change while the
+     * service lives — whether a trip is running, whether the app is on screen
+     * and what the platform says the user is doing — and reacts to each change.
+     * All sources emit immediately when collected (the active-travel flow is a
+     * Room query with an initial emission, the other two are state flows), so
+     * the first profile is applied as soon as the service starts, and
+     * `distinctUntilChanged` makes every later emission a no-op while the group
+     * is unchanged.
      */
     private fun observeTrackingState() {
         // A single collector per service instance: onStartCommand may run again
@@ -425,14 +473,19 @@ class TrackingService : Service() {
         trackingStateJob = serviceScope.launch {
             combine(
                 travelRepository.observeActiveTravel(),
-                appInForeground
-            ) { travel, foreground ->
-                TrackingState(tripActive = travel != null, appInForeground = foreground)
+                appInForeground,
+                MotionSignals.motion
+            ) { travel, foreground, motion ->
+                TrackingState(
+                    tripActive = travel != null,
+                    appInForeground = foreground,
+                    motion = motion
+                )
             }
                 .distinctUntilChanged()
                 .collect { state ->
                     requestLocationUpdates(
-                        TrackingMode.of(state.tripActive, state.appInForeground)
+                        TrackingMode.of(state.tripActive, state.appInForeground, state.motion)
                     )
                     // The pedometer has a destination only while a trip is being
                     // recorded: outside a trip the readings would only become a
@@ -448,13 +501,14 @@ class TrackingService : Service() {
     }
 
     /**
-     * The two facts that decide how the service tracks, grouped so the state
-     * comparison is a single value: whether a trip is open and whether the app
-     * is on screen.
+     * The facts that decide how the service tracks, grouped so the state
+     * comparison is a single value: whether a trip is open, whether the app is
+     * on screen and what the platform says the user is doing.
      */
     private data class TrackingState(
         val tripActive: Boolean,
-        val appInForeground: Boolean
+        val appInForeground: Boolean,
+        val motion: MotionState
     )
 
     /**
@@ -470,10 +524,24 @@ class TrackingService : Service() {
      * and so is any call without the location permission (the activity asks for
      * it before starting the service, but the guard keeps a system restart
      * safe).
+     *
+     * [TrackingMode.PAUSED] is the one profile that REMOVES the request: with
+     * no trip, the app off screen and the user standing still, nothing can
+     * happen until they move, so no position is worth asking for. It is the
+     * closest the app gets to the "geofences are fine with battery power"
+     * property of the platform geofencing API, obtained without keeping a
+     * continuous stream alive: the Activity Recognition transitions are what
+     * wakes the tracker up again.
      */
     private fun requestLocationUpdates(mode: TrackingMode) {
         if (!hasLocationPermission()) return
         if (mode == appliedMode) return
+        val previousMode = appliedMode
+        appliedMode = mode
+        if (mode == TrackingMode.PAUSED) {
+            stopLocationUpdates()
+            return
+        }
         val active = mode == TrackingMode.ACTIVE
         // Without the fine location permission the platform only allows the
         // coarse provider: the profile is honoured as far as it can be.
@@ -497,9 +565,12 @@ class TrackingService : Service() {
         if (!active) {
             builder.setMaxUpdateDelayMillis(travelConfig.idleLocationMaxUpdateDelayMillis)
         }
-        appliedMode = mode
         LocationServices.getFusedLocationProviderClient(this)
             .requestLocationUpdates(builder.build(), locationListener, Looper.getMainLooper())
+        // Waking up from a pause: the periodic stream would only deliver after
+        // a full interval, so one immediate fix brings the map (and the POI
+        // fence the user is walking toward) back to life right away.
+        if (previousMode == TrackingMode.PAUSED) requestCurrentLocation()
     }
 
     /**

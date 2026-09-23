@@ -1,6 +1,7 @@
 package com.example.progmob_progetto_melluso.travel
 
 import com.example.progmob_progetto_melluso.core.GeoUtils
+import com.example.progmob_progetto_melluso.core.MonotonicTime
 import com.example.progmob_progetto_melluso.data.dao.PoiDao
 import com.example.progmob_progetto_melluso.data.dao.TravelDao
 import com.example.progmob_progetto_melluso.data.dao.TravelPathPointDao
@@ -51,6 +52,18 @@ import kotlinx.coroutines.sync.withLock
  * and stops when tracking stops: it is the time the trip was actually
  * tracked, which is what the journal, the map and the trip timer show.
  *
+ * The duration is MEASURED on a monotonic clock ([monotonicMillis], time since
+ * boot) while it is STAMPED on the wall clock ([clock]): a stored block needs
+ * wall-clock coordinates to stay meaningful across reboots, but measuring with
+ * the wall clock would let an NTP correction or a manual time change credit the
+ * trip with time it never tracked.
+ *
+ * Path cleaning: the recorded path is cleaned before each write. A fix
+ * implying an impossible speed is dropped (a GPS teleport) and a fix whose
+ * reported error makes it barely informative is blended toward the last
+ * recorded point, so the path keeps the shape of the movement instead of the
+ * shape of the noise ([PathCleaning]).
+ *
  * @param travelDao DAO for the travels table.
  * @param pathPointDao DAO for the recorded path points.
  * @param poiDao DAO for the POIs, used by the automatic visit detection.
@@ -59,6 +72,8 @@ import kotlinx.coroutines.sync.withLock
  * @param timeZoneIdProvider Supplies the reference timezone stored on each
  *   travel, used for correct day bucketing when the user crosses time zones.
  * @param clock Supplies "now" in UTC millis; injectable for deterministic tests.
+ * @param monotonicMillis Supplies a monotonic millisecond counter (time since
+ *   boot) used to measure durations; injectable for deterministic tests.
  * @param userIdProvider Supplies the signed-in user id (Firebase uid) that
  *   owns the travels: every travel is stamped and every query is scoped to it,
  *   so switching account shows an empty journal instead of the previous
@@ -74,6 +89,7 @@ class TravelRepositoryImpl(
     private val config: TravelConfig = TravelConfig(),
     private val timeZoneIdProvider: () -> String = { "UTC" },
     private val clock: () -> Long = { System.currentTimeMillis() },
+    private val monotonicMillis: () -> Long = { MonotonicTime.elapsedMillis() },
     private val userIdProvider: () -> String = { "local-user" }
 ) : TravelRepository {
 
@@ -95,10 +111,19 @@ class TravelRepositoryImpl(
      * layer and the UI each get their own instance), so the clock must be
      * per-PROCESS. Otherwise the service's [endSession] could never close the
      * segment the map's [startSession] opened and the timer would freeze.
+     *
+     * The value is MEASURED on the monotonic clock: it is the real time the
+     * tracking has been running, immune to wall-clock jumps. The wall-clock
+     * start is kept only to stamp the stored block, and it is also the
+     * fallback when the monotonic start is missing (a state written by a
+     * different code path), so the timer can never be reported as negative or
+     * as zero simply because one of the two starts is absent.
      */
     private fun openSessionMillis(): Long {
-        val startedAt = sessionStartUtcMillis ?: return 0L
-        return maxOf(0L, clock() - startedAt)
+        val startedAtWall = sessionStartUtcMillis ?: return 0L
+        val startedAtMonotonic = sessionStartElapsedMillis
+            ?: return maxOf(0L, clock() - startedAtWall)
+        return maxOf(0L, monotonicMillis() - startedAtMonotonic)
     }
 
     /**
@@ -108,17 +133,22 @@ class TravelRepositoryImpl(
      * instant is kept, so a second call (the app reopening, the service
      * restarting, a manual start on a trip that is already running) can never
      * throw away the time already counted.
+     *
+     * Both starts are recorded: the wall-clock instant (to stamp the stored
+     * block) and the monotonic instant (to measure its length).
      */
     private fun openSession(travelId: Long) {
         if (sessionTravelId == travelId && sessionStartUtcMillis != null) return
         sessionTravelId = travelId
         sessionStartUtcMillis = clock()
+        sessionStartElapsedMillis = monotonicMillis()
     }
 
     /** Closes the tracked clock; the open segment is stored by the caller. */
     private fun closeSession() {
         sessionTravelId = null
         sessionStartUtcMillis = null
+        sessionStartElapsedMillis = null
     }
 
     override fun observeActiveTravel(): Flow<TravelEntity?> = flow {
@@ -219,7 +249,11 @@ class TravelRepositoryImpl(
         // journal each hold their own repository).
         val startedAt = sessionStartUtcMillis ?: return
         val travelId = sessionTravelId ?: return
-        recordSessionBlock(travelId, startedAt, clock())
+        // The end instant is the start PLUS the time really measured on the
+        // monotonic clock: the block keeps wall-clock coordinates (so it stays
+        // meaningful after a reboot) while its LENGTH cannot be distorted by a
+        // wall-clock jump.
+        recordSessionBlock(travelId, startedAt, startedAt + openSessionMillis())
         // Closing STORES the segment: the duration stops growing while nothing
         // tracks the user. [startSession] opens a new one when tracking resumes.
         closeSession()
@@ -235,12 +269,15 @@ class TravelRepositoryImpl(
         val startedAt = sessionStartUtcMillis
         val endedAt = clock()
         val clockBelongsToThisTrip = sessionTravelId == null || sessionTravelId == active.id
-        if (startedAt != null && endedAt > startedAt && clockBelongsToThisTrip) {
+        // Same monotonic measurement as endSession: the tail of the clock is
+        // stored with its real length, stamped in wall-clock coordinates.
+        val trackedEnd = startedAt?.let { it + openSessionMillis() }
+        if (startedAt != null && trackedEnd != null && trackedEnd > startedAt && clockBelongsToThisTrip) {
             sessionBlockDao.insert(
                 TravelSessionBlockEntity(
                     travelId = active.id,
                     fromUtcMillis = startedAt,
-                    toUtcMillis = endedAt
+                    toUtcMillis = trackedEnd
                 )
             )
         }
@@ -311,12 +348,44 @@ class TravelRepositoryImpl(
                 (distanceFromLast >= spatialThreshold && elapsedFromLast >= config.minElapsedMillis)
             if (!shouldRecord) return@withLock LocationRecordResult.Skipped
 
-            // 5. Store the point; the first one becomes the trip anchor. Then
-            //    check the POI geofence: every POI within the configured radius
-            //    gets a visit in the travel journal (the POI proximity requirement, automatic).
-            val point = newPathPoint(activeTravel.id, sample)
+            // 5. Outlier gate, the last defence before writing: a fix implying a
+            //    movement no traveler could have made is a GPS "teleport" (or a
+            //    stale fix delivered late with a fresh timestamp), not a
+            //    movement. One such point would draw a straight line across the
+            //    map and spoil the shape of the whole trip, and no later
+            //    cleaning could undo it.
+            if (lastPoint != null &&
+                !PathCleaning.isPlausibleMovement(
+                    distanceMeters = distanceFromLast,
+                    elapsedMillis = elapsedFromLast,
+                    maxSpeedMetersPerSecond = config.maxPlausibleSpeedKmh / KMH_TO_METERS_PER_SECOND
+                )
+            ) {
+                return@withLock LocationRecordResult.Skipped
+            }
+
+            // 6. Clean the point, then store it; the first one becomes the trip
+            //    anchor. A fix whose reported error makes it barely informative
+            //    is blended toward the last recorded point, so the path follows
+            //    the movement instead of the noise. The STORED coordinates are
+            //    what the state keeps, so consecutive points are smoothed
+            //    against each other instead of against the raw stream.
+            val cleaned = lastPoint?.let { previous ->
+                PathCleaning.smooth(
+                    previousLatitude = previous.latitude,
+                    previousLongitude = previous.longitude,
+                    nextLatitude = sample.latitude,
+                    nextLongitude = sample.longitude,
+                    nextAccuracyMeters = accuracy,
+                    referenceMeters = config.pathSmoothingReferenceMeters
+                )
+            } ?: (sample.latitude to sample.longitude)
+            val point = newPathPoint(activeTravel.id, sample, cleaned.first, cleaned.second)
             pathPointDao.insert(point)
-            detectVisitsNear(activeTravel.id, sample)
+            // The POI geofence is evaluated on the CLEANED position too: the
+            // journal visit and the stored path must never disagree about where
+            // the user was.
+            detectVisitsNear(activeTravel.id, sample.recordedAtUtcMillis, cleaned.first, cleaned.second)
             if (anchorPoint == null) anchorPoint = point
             lastPoint = point
 
@@ -324,33 +393,52 @@ class TravelRepositoryImpl(
         }
 
     /**
-     * Registers a visit for every POI within the geofencing radius of this
-     * sample, keeping one visit per (travel, POI): re-passing near the same
-     * POI never duplicates it. Runs only when a point is actually stored, so
-     * it never fires on filtered GPS noise.
+     * Registers a visit for every POI within the geofencing radius of a
+     * recorded position, keeping one visit per (travel, POI): re-passing near
+     * the same POI never duplicates it. Runs only when a point is actually
+     * stored, so it never fires on filtered GPS noise.
+     *
+     * @param latitude latitude to test, i.e. the CLEANED one that was stored.
+     * @param longitude longitude to test, i.e. the CLEANED one that was stored.
      */
-    private suspend fun detectVisitsNear(travelId: Long, sample: LocationSample) {
+    private suspend fun detectVisitsNear(
+        travelId: Long,
+        visitedAtUtcMillis: Long,
+        latitude: Double,
+        longitude: Double
+    ) {
         val pois = poiDao.allPoisOnce()
         if (pois.isEmpty()) return
-        PoiProximity.near(sample.latitude, sample.longitude, pois, config.poiVisitRadiusMeters)
+        PoiProximity.near(latitude, longitude, pois, config.poiVisitRadiusMeters)
             .forEach { poi ->
                 if (travelPoiVisitDao.visitForTravelAndPoi(travelId, poi.id) == null) {
                     travelPoiVisitDao.insert(
                         TravelPoiVisitEntity(
                             travelId = travelId,
                             poiId = poi.id,
-                            visitedAtUtcMillis = sample.recordedAtUtcMillis
+                            visitedAtUtcMillis = visitedAtUtcMillis
                         )
                     )
                 }
             }
     }
 
-    /** Builds a path point for [travelId] from a location sample. */
-    private fun newPathPoint(travelId: Long, sample: LocationSample) = TravelPathPointEntity(
+    /**
+     * Builds a path point for [travelId] from a location sample.
+     *
+     * The coordinates are passed in rather than taken from the sample because
+     * the point that is stored is the CLEANED one ([PathCleaning.smooth]);
+     * everything else (when it was taken, how precise it was) is the sample's.
+     */
+    private fun newPathPoint(
+        travelId: Long,
+        sample: LocationSample,
+        latitude: Double,
+        longitude: Double
+    ) = TravelPathPointEntity(
         travelId = travelId,
-        latitude = sample.latitude,
-        longitude = sample.longitude,
+        latitude = latitude,
+        longitude = longitude,
         recordedAtUtcMillis = sample.recordedAtUtcMillis,
         accuracyMeters = sample.accuracyMeters
     )
@@ -420,10 +508,21 @@ class TravelRepositoryImpl(
         private var sessionTravelId: Long? = null
 
         /**
+         * Monotonic instant the open segment started (time since boot), used to
+         * MEASURE its length. Null when no segment is open. Kept per-process
+         * next to the wall-clock start, for the same reason.
+         */
+        @Volatile
+        private var sessionStartElapsedMillis: Long? = null
+
+        /**
          * How often an ongoing trip re-emits its duration: the resolution the
          * timer displays. The tick runs only while an ongoing trip is being
          * observed (see [observeTraveledDuration]).
          */
         private const val DURATION_TICK_MILLIS = 1_000L
+
+        /** Kilometres per hour to meters per second, used by the outlier gate. */
+        private const val KMH_TO_METERS_PER_SECOND = 3.6
     }
 }

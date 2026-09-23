@@ -59,4 +59,25 @@ class TravelConfigTest {
     fun idleDisplacement_staysBelowTheGeofenceRadius() {
         assertTrue(config.idleLocationMinDisplacementMeters < config.poiVisitRadiusMeters)
     }
+
+    /**
+     * The smoothing only ever applies to fixes the accuracy gate already
+     * accepted: a reference above the accepted error would leave a part of the
+     * path that is never cleaned, and one at or below it would blend fixes that
+     * are already precise enough to be trusted as they are.
+     */
+    @Test
+    fun smoothingReference_staysInsideTheAcceptedAccuracy() {
+        assertTrue(config.pathSmoothingReferenceMeters <= config.maxAccuracyMeters)
+        assertTrue(config.pathSmoothingReferenceMeters > 0.0)
+    }
+
+    /**
+     * The outlier gate must be far above anything the user can do on foot or by
+     * car, otherwise it would cut real movements (a fast train ride, a plane).
+     */
+    @Test
+    fun outlierGate_leavesRealTravelersAlone() {
+        assertTrue(config.maxPlausibleSpeedKmh >= 200.0)
+    }
 }
